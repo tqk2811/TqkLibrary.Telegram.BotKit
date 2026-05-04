@@ -76,11 +76,51 @@ namespace TqkLibrary.Telegram.BotKit.Extensions
             return (call.Method, args);
         }
 
+        /// <summary>
+        /// Evaluate an argument-position expression without compiling, when possible.
+        /// Handles the patterns the builder actually sees in practice:
+        ///   - <c>ConstantExpression</c>: literal values, captured-closure root.
+        ///   - <c>DefaultExpression</c>: <c>default!</c> / <c>default(T)</c>.
+        ///   - <c>MemberExpression</c>: closure field, property chain — recurse + reflect.
+        ///   - <c>UnaryExpression</c> Convert/Quote: recurse on the operand.
+        /// Anything else (method calls, lambdas) falls back to <c>Expression.Compile()</c>.
+        /// </summary>
         static object? EvaluateExpression(Expression expr)
         {
-            if (expr is ConstantExpression ce) return ce.Value;
-            // Compile + invoke: covers field/property/method-call closures. Cost is fine — used only when building a button, not on the hot path.
-            var lambda = Expression.Lambda(expr);
+            switch (expr.NodeType)
+            {
+                case ExpressionType.Constant:
+                    return ((ConstantExpression)expr).Value;
+
+                case ExpressionType.Default:
+                    Type defaultType = ((DefaultExpression)expr).Type;
+                    return defaultType.IsValueType && Nullable.GetUnderlyingType(defaultType) is null
+                        ? Activator.CreateInstance(defaultType)
+                        : null;
+
+                case ExpressionType.MemberAccess:
+                    var me = (MemberExpression)expr;
+                    object? target = me.Expression is null ? null : EvaluateExpression(me.Expression);
+                    return me.Member switch
+                    {
+                        FieldInfo f => f.GetValue(target),
+                        PropertyInfo p => p.GetValue(target),
+                        _ => CompileEvaluate(expr),
+                    };
+
+                case ExpressionType.Convert:
+                case ExpressionType.ConvertChecked:
+                case ExpressionType.Quote:
+                    return EvaluateExpression(((UnaryExpression)expr).Operand);
+
+                default:
+                    return CompileEvaluate(expr);
+            }
+        }
+
+        static object? CompileEvaluate(Expression expr)
+        {
+            LambdaExpression lambda = Expression.Lambda(expr);
             return lambda.Compile().DynamicInvoke();
         }
 
