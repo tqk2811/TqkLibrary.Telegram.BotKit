@@ -250,16 +250,19 @@ namespace TqkLibrary.Telegram.BotKit
         /// <summary>Find the inline button descriptor matching the callback data. Returns the descriptor and the captured values.</summary>
         public (ActionDescriptor descriptor, IReadOnlyDictionary<string, string> values)? MatchInlineButton(string callbackData)
         {
-            // Split at the first separator (either '|' or '/') to obtain the prefix index.
-            int sepIdx = callbackData.IndexOfAny([RouteTemplate.PipeSeparator, RouteTemplate.SlashSeparator]);
-            string prefix = sepIdx < 0 ? callbackData : callbackData[..sepIdx];
+            if (callbackData is null) return null;
+
+            // Split once and reuse — every candidate descriptor under the same prefix matches against
+            // the same parts array, so we avoid a per-descriptor string.Split allocation on the hot path.
+            string[] parts = callbackData.Split(RouteTemplate.Separators);
+            string prefix = parts[0];
 
             if (!_inlineByPrefix.TryGetValue(prefix, out List<ActionDescriptor>? list))
                 return null;
 
             foreach (ActionDescriptor d in list)
             {
-                if (d.RouteTemplate!.TryMatch(callbackData, out IReadOnlyDictionary<string, string> values))
+                if (d.RouteTemplate!.TryMatchParts(parts, out IReadOnlyDictionary<string, string> values))
                     return (d, values);
             }
             return null;
