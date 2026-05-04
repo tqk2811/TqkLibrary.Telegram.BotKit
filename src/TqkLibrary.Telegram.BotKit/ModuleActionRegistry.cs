@@ -112,6 +112,9 @@ namespace TqkLibrary.Telegram.BotKit
                     throw new InvalidOperationException(
                         $"{handlerType.Name}.{method.Name}: [InlineButton]/[OnUserInput]/[TelegramRegex] are only valid on {nameof(CallbackModule)}.");
 
+                Func<object, object?[], object?>? invoker = null;
+                Func<object, object?[], object?> GetInvoker() => invoker ??= InvokerFactory.Create(method);
+
                 foreach (TelegramCommandAttribute a in cmdAttrs)
                 {
                     ParameterBinding[] parms = ParameterBindingFactory.Build(method, template: null);
@@ -121,6 +124,7 @@ namespace TqkLibrary.Telegram.BotKit
                         ModuleType = handlerType,
                         Method = method,
                         Parameters = parms,
+                        Invoker = GetInvoker(),
                         CommandName = a.Name,
                         CommandOrder = a.Order,
                         CommandDescription = a.Description,
@@ -147,6 +151,7 @@ namespace TqkLibrary.Telegram.BotKit
                         ModuleType = handlerType,
                         Method = method,
                         Parameters = parms,
+                        Invoker = GetInvoker(),
                         RouteTemplate = template,
                         InlineTitle = a.Title,
                         InlineTitleResourceType = a.TitleResourceType,
@@ -171,6 +176,7 @@ namespace TqkLibrary.Telegram.BotKit
                         ModuleType = handlerType,
                         Method = method,
                         Parameters = parms,
+                        Invoker = GetInvoker(),
                         UserInputKey = a.Key,
                     };
                     if (!_userInputByKey.TryAdd(a.Key, desc))
@@ -189,6 +195,7 @@ namespace TqkLibrary.Telegram.BotKit
                         ModuleType = handlerType,
                         Method = method,
                         Parameters = parms,
+                        Invoker = GetInvoker(),
                         Regex = a.Regex,
                         RegexOrder = a.Order,
                         RegexStopOnMatch = a.StopOnMatch,

@@ -21,6 +21,13 @@ namespace TqkLibrary.Telegram.BotKit.Binding
         public required MethodInfo Method { get; init; }
         public required ParameterBinding[] Parameters { get; init; }
 
+        /// <summary>
+        /// Compiled delegate built once at registry construction time. Replaces the per-dispatch
+        /// <see cref="MethodInfo.Invoke(object?, object?[])"/> reflection call (10-50x slower).
+        /// Returns the method's raw return value (Task / ValueTask / object / null for void).
+        /// </summary>
+        public required Func<object, object?[], object?> Invoker { get; init; }
+
         // Command
         public string? CommandName { get; init; }
         public int CommandOrder { get; init; }

@@ -19,7 +19,7 @@ namespace TqkLibrary.Telegram.BotKit.Binding
 
             object?[] args = BindArguments(descriptor, update);
 
-            object? result = descriptor.Method.Invoke(handler, args);
+            object? result = descriptor.Invoker(handler, args);
             if (result is Task task) await task.ConfigureAwait(false);
             else if (result is ValueTask vt) await vt.ConfigureAwait(false);
             // else: sync action — discouraged but not blocked.
