@@ -15,6 +15,7 @@ namespace TqkLibrary.Telegram.BotKit.Handlers
     public abstract class BaseTelegramHandler
     {
         ModuleContext? _context;
+        ModuleActionRegistry? _registry;
 
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
         public ModuleContext ModuleContext
@@ -35,10 +36,11 @@ namespace TqkLibrary.Telegram.BotKit.Handlers
         /// <summary>
         /// Shared <see cref="ModuleActionRegistry"/> singleton used to render type-safe inline
         /// buttons (e.g. <c>Registry.ToInlineButton&lt;TModule&gt;(c =&gt; c.Action(...))</c>).
-        /// Resolved from <see cref="ServiceProvider"/> on each access; the DI container caches
-        /// the singleton so this stays cheap.
+        /// Cached after the first resolve so multi-button keyboards don't re-walk the DI
+        /// container on each call (handler instances are scoped per-update — single-threaded).
         /// </summary>
-        protected ModuleActionRegistry Registry => ServiceProvider.GetRequiredService<ModuleActionRegistry>();
+        protected ModuleActionRegistry Registry =>
+            _registry ??= ServiceProvider.GetRequiredService<ModuleActionRegistry>();
 
         /// <summary>
         /// Resolve the culture for the current update via <see cref="ICultureProvider"/>;
