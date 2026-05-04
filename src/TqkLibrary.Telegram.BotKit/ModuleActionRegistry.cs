@@ -29,6 +29,8 @@ namespace TqkLibrary.Telegram.BotKit
         readonly Dictionary<MethodInfo, List<ActionDescriptor>> _byMethod = new();
         // all handler types (for DI registration) — includes both concrete Command and Module types
         readonly HashSet<Type> _handlerTypes = new();
+        // ModuleType → cached factory; avoids re-running ActivatorUtilities constructor scan per dispatch
+        readonly Dictionary<Type, Func<IServiceProvider, object>> _moduleFactories = new();
 
         public IReadOnlyCollection<Type> HandlerTypes => _handlerTypes;
 
@@ -114,6 +116,7 @@ namespace TqkLibrary.Telegram.BotKit
 
                 Func<object, object?[], object?>? invoker = null;
                 Func<object, object?[], object?> GetInvoker() => invoker ??= InvokerFactory.Create(method);
+                Func<IServiceProvider, object> moduleFactory = GetOrCreateModuleFactory(handlerType);
 
                 foreach (TelegramCommandAttribute a in cmdAttrs)
                 {
@@ -125,6 +128,7 @@ namespace TqkLibrary.Telegram.BotKit
                         Method = method,
                         Parameters = parms,
                         Invoker = GetInvoker(),
+                        ModuleFactory = moduleFactory,
                         CommandName = a.Name,
                         CommandOrder = a.Order,
                         CommandDescription = a.Description,
@@ -152,6 +156,7 @@ namespace TqkLibrary.Telegram.BotKit
                         Method = method,
                         Parameters = parms,
                         Invoker = GetInvoker(),
+                        ModuleFactory = moduleFactory,
                         RouteTemplate = template,
                         InlineTitle = a.Title,
                         InlineTitleResourceType = a.TitleResourceType,
@@ -177,6 +182,7 @@ namespace TqkLibrary.Telegram.BotKit
                         Method = method,
                         Parameters = parms,
                         Invoker = GetInvoker(),
+                        ModuleFactory = moduleFactory,
                         UserInputKey = a.Key,
                     };
                     if (!_userInputByKey.TryAdd(a.Key, desc))
@@ -196,6 +202,7 @@ namespace TqkLibrary.Telegram.BotKit
                         Method = method,
                         Parameters = parms,
                         Invoker = GetInvoker(),
+                        ModuleFactory = moduleFactory,
                         Regex = a.Regex,
                         RegexOrder = a.Order,
                         RegexStopOnMatch = a.StopOnMatch,
@@ -207,6 +214,17 @@ namespace TqkLibrary.Telegram.BotKit
             }
 
             if (added) _handlerTypes.Add(handlerType);
+        }
+
+        Func<IServiceProvider, object> GetOrCreateModuleFactory(Type handlerType)
+        {
+            if (!_moduleFactories.TryGetValue(handlerType, out Func<IServiceProvider, object>? factory))
+            {
+                ObjectFactory raw = ActivatorUtilities.CreateFactory(handlerType, Type.EmptyTypes);
+                factory = sp => raw(sp, null);
+                _moduleFactories[handlerType] = factory;
+            }
+            return factory;
         }
 
         void RegisterByMethod(MethodInfo method, ActionDescriptor desc)

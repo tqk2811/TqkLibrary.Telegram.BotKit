@@ -13,7 +13,7 @@ namespace TqkLibrary.Telegram.BotKit.Binding
             IServiceProvider scopedProvider,
             UpdateContext update)
         {
-            object handler = ActivatorUtilities.CreateInstance(scopedProvider, descriptor.ModuleType);
+            object handler = descriptor.ModuleFactory(scopedProvider);
             if (handler is BaseTelegramHandler baseHandler)
                 baseHandler.ModuleContext = update.Module;
 
