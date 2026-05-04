@@ -50,24 +50,49 @@ namespace TqkLibrary.Telegram.BotKit.Extensions
             {
                 // IStringLocalizer reads CultureInfo.CurrentUICulture internally — when caller
                 // passed an explicit culture (e.g. SetMyCommands publishing per-language menus
-                // up-front, before any update set CurrentUICulture), temporarily flip it so the
-                // fallback honors the requested culture, then restore.
-                CultureInfo? toFlip = culture is not null && !culture.Equals(CultureInfo.CurrentUICulture)
-                    ? culture : null;
-                CultureInfo? previous = toFlip is not null ? CultureInfo.CurrentUICulture : null;
-                if (toFlip is not null) CultureInfo.CurrentUICulture = toFlip;
-                try
+                // up-front, before any update set CurrentUICulture), temporarily flip it via the
+                // scope below so the fallback honors the requested culture. The scope is a no-op
+                // when the requested culture already matches CurrentUICulture, avoiding a needless
+                // assign/restore on the dispatch hot path.
+                using (new UICultureScope(culture))
                 {
                     LocalizedString s = fallbackLocalizer[resourceName];
                     if (!s.ResourceNotFound) return s.Value;
                 }
-                finally
-                {
-                    if (previous is not null) CultureInfo.CurrentUICulture = previous;
-                }
             }
 
             return literalFallback;
+        }
+
+        /// <summary>
+        /// Sets <see cref="CultureInfo.CurrentUICulture"/> to <paramref name="newCulture"/> on
+        /// construction and restores the previous value on <see cref="Dispose"/>. No-ops when
+        /// <paramref name="newCulture"/> is null or already matches CurrentUICulture, so callers
+        /// can wrap unconditionally without paying for redundant assigns. The scope is sync-only
+        /// (no <c>await</c> between Enter and Dispose) so the flip cannot leak across async
+        /// boundaries via <see cref="System.Threading.ExecutionContext"/>.
+        /// </summary>
+        readonly struct UICultureScope : IDisposable
+        {
+            readonly CultureInfo? _previous;
+
+            public UICultureScope(CultureInfo? newCulture)
+            {
+                if (newCulture is not null && !newCulture.Equals(CultureInfo.CurrentUICulture))
+                {
+                    _previous = CultureInfo.CurrentUICulture;
+                    CultureInfo.CurrentUICulture = newCulture;
+                }
+                else
+                {
+                    _previous = null;
+                }
+            }
+
+            public void Dispose()
+            {
+                if (_previous is not null) CultureInfo.CurrentUICulture = _previous;
+            }
         }
 
         static ResourceManager? GetResourceManager(Type resourceType)
