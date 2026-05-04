@@ -29,6 +29,8 @@ namespace TqkLibrary.Telegram.BotKit
         readonly Dictionary<MethodInfo, List<ActionDescriptor>> _byMethod = new();
         // all handler types (for DI registration) — includes both concrete Command and Module types
         readonly HashSet<Type> _handlerTypes = new();
+        // ModuleType → cached factory; avoids re-running ActivatorUtilities constructor scan per dispatch
+        readonly Dictionary<Type, Func<IServiceProvider, object>> _moduleFactories = new();
 
         public IReadOnlyCollection<Type> HandlerTypes => _handlerTypes;
 
@@ -112,6 +114,10 @@ namespace TqkLibrary.Telegram.BotKit
                     throw new InvalidOperationException(
                         $"{handlerType.Name}.{method.Name}: [InlineButton]/[OnUserInput]/[TelegramRegex] are only valid on {nameof(CallbackModule)}.");
 
+                Func<object, object?[], object?>? invoker = null;
+                Func<object, object?[], object?> GetInvoker() => invoker ??= InvokerFactory.Create(method);
+                Func<IServiceProvider, object> moduleFactory = GetOrCreateModuleFactory(handlerType);
+
                 foreach (TelegramCommandAttribute a in cmdAttrs)
                 {
                     ParameterBinding[] parms = ParameterBindingFactory.Build(method, template: null);
@@ -121,6 +127,8 @@ namespace TqkLibrary.Telegram.BotKit
                         ModuleType = handlerType,
                         Method = method,
                         Parameters = parms,
+                        Invoker = GetInvoker(),
+                        ModuleFactory = moduleFactory,
                         CommandName = a.Name,
                         CommandOrder = a.Order,
                         CommandDescription = a.Description,
@@ -147,6 +155,8 @@ namespace TqkLibrary.Telegram.BotKit
                         ModuleType = handlerType,
                         Method = method,
                         Parameters = parms,
+                        Invoker = GetInvoker(),
+                        ModuleFactory = moduleFactory,
                         RouteTemplate = template,
                         InlineTitle = a.Title,
                         InlineTitleResourceType = a.TitleResourceType,
@@ -171,6 +181,8 @@ namespace TqkLibrary.Telegram.BotKit
                         ModuleType = handlerType,
                         Method = method,
                         Parameters = parms,
+                        Invoker = GetInvoker(),
+                        ModuleFactory = moduleFactory,
                         UserInputKey = a.Key,
                     };
                     if (!_userInputByKey.TryAdd(a.Key, desc))
@@ -189,6 +201,8 @@ namespace TqkLibrary.Telegram.BotKit
                         ModuleType = handlerType,
                         Method = method,
                         Parameters = parms,
+                        Invoker = GetInvoker(),
+                        ModuleFactory = moduleFactory,
                         Regex = a.Regex,
                         RegexOrder = a.Order,
                         RegexStopOnMatch = a.StopOnMatch,
@@ -200,6 +214,17 @@ namespace TqkLibrary.Telegram.BotKit
             }
 
             if (added) _handlerTypes.Add(handlerType);
+        }
+
+        Func<IServiceProvider, object> GetOrCreateModuleFactory(Type handlerType)
+        {
+            if (!_moduleFactories.TryGetValue(handlerType, out Func<IServiceProvider, object>? factory))
+            {
+                ObjectFactory raw = ActivatorUtilities.CreateFactory(handlerType, Type.EmptyTypes);
+                factory = sp => raw(sp, null);
+                _moduleFactories[handlerType] = factory;
+            }
+            return factory;
         }
 
         void RegisterByMethod(MethodInfo method, ActionDescriptor desc)
@@ -225,16 +250,19 @@ namespace TqkLibrary.Telegram.BotKit
         /// <summary>Find the inline button descriptor matching the callback data. Returns the descriptor and the captured values.</summary>
         public (ActionDescriptor descriptor, IReadOnlyDictionary<string, string> values)? MatchInlineButton(string callbackData)
         {
-            // Split at the first separator (either '|' or '/') to obtain the prefix index.
-            int sepIdx = callbackData.IndexOfAny([RouteTemplate.PipeSeparator, RouteTemplate.SlashSeparator]);
-            string prefix = sepIdx < 0 ? callbackData : callbackData[..sepIdx];
+            if (callbackData is null) return null;
+
+            // Split once and reuse — every candidate descriptor under the same prefix matches against
+            // the same parts array, so we avoid a per-descriptor string.Split allocation on the hot path.
+            string[] parts = callbackData.Split(RouteTemplate.Separators);
+            string prefix = parts[0];
 
             if (!_inlineByPrefix.TryGetValue(prefix, out List<ActionDescriptor>? list))
                 return null;
 
             foreach (ActionDescriptor d in list)
             {
-                if (d.RouteTemplate!.TryMatch(callbackData, out IReadOnlyDictionary<string, string> values))
+                if (d.RouteTemplate!.TryMatchParts(parts, out IReadOnlyDictionary<string, string> values))
                     return (d, values);
             }
             return null;

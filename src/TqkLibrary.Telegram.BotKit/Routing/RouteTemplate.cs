@@ -10,7 +10,7 @@ namespace TqkLibrary.Telegram.BotKit.Routing
     {
         public const char PipeSeparator = '|';
         public const char SlashSeparator = '/';
-        static readonly char[] Separators = [PipeSeparator, SlashSeparator];
+        internal static readonly char[] Separators = [PipeSeparator, SlashSeparator];
 
         /// <summary>Telegram callback_data hard limit 64 bytes (UTF-8).</summary>
         public const int MaxCallbackDataBytes = 64;
@@ -151,8 +151,17 @@ namespace TqkLibrary.Telegram.BotKit.Routing
         {
             values = EmptyDict;
             if (callbackData is null) return false;
-
             string[] parts = callbackData.Split(Separators);
+            return TryMatchParts(parts, out values);
+        }
+
+        /// <summary>
+        /// Match against a pre-split parts array. Used by <see cref="ModuleActionRegistry.MatchInlineButton(string)"/>
+        /// to split the callback data once and reuse the array across every candidate descriptor under a prefix.
+        /// </summary>
+        internal bool TryMatchParts(string[] parts, out IReadOnlyDictionary<string, string> values)
+        {
+            values = EmptyDict;
             if (parts.Length != _segments.Length) return false;
 
             Dictionary<string, string>? captures = null;

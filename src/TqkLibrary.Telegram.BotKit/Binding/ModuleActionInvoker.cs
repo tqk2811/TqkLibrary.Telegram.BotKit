@@ -13,13 +13,13 @@ namespace TqkLibrary.Telegram.BotKit.Binding
             IServiceProvider scopedProvider,
             UpdateContext update)
         {
-            object handler = ActivatorUtilities.CreateInstance(scopedProvider, descriptor.ModuleType);
+            object handler = descriptor.ModuleFactory(scopedProvider);
             if (handler is BaseTelegramHandler baseHandler)
                 baseHandler.ModuleContext = update.Module;
 
             object?[] args = BindArguments(descriptor, update);
 
-            object? result = descriptor.Method.Invoke(handler, args);
+            object? result = descriptor.Invoker(handler, args);
             if (result is Task task) await task.ConfigureAwait(false);
             else if (result is ValueTask vt) await vt.ConfigureAwait(false);
             // else: sync action — discouraged but not blocked.

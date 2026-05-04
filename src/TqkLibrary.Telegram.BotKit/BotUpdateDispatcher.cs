@@ -71,7 +71,7 @@ namespace TqkLibrary.Telegram.BotKit
             long telegramUserId = message.From!.Id;
             string? telegramUsername = message.From.Username;
 
-            using IDisposable _ = await AcquireChatLockAsync(chatId, cancellationToken);
+            using IDisposable _ = await AcquireChatLockOrNoopAsync(chatId, cancellationToken);
 
             using IServiceScope scope = _serviceProvider.CreateScope();
             PopulateUpdateContext(scope, chatId, telegramUserId);
@@ -107,7 +107,7 @@ namespace TqkLibrary.Telegram.BotKit
             long telegramUserId = callbackQuery.From.Id;
             string? telegramUsername = callbackQuery.From.Username;
 
-            using IDisposable _ = await AcquireChatLockAsync(chatId, cancellationToken);
+            using IDisposable _ = await AcquireChatLockOrNoopAsync(chatId, cancellationToken);
 
             using IServiceScope scope = _serviceProvider.CreateScope();
             PopulateUpdateContext(scope, chatId, telegramUserId);
@@ -167,6 +167,22 @@ namespace TqkLibrary.Telegram.BotKit
             {
                 _logger.LogDebug(ex, "Bot {BotId}: auto-answer callback skipped (already answered)", _botId);
             }
+        }
+
+        /// <summary>
+        /// Per-update entry point that respects <see cref="TelegramBotKitOptions.PerChatSerialize"/>:
+        /// returns a real chat lock when serialization is on (default), or a no-op disposable when
+        /// the user has explicitly opted out for stateless handlers.
+        /// </summary>
+        Task<IDisposable> AcquireChatLockOrNoopAsync(long chatId, CancellationToken cancellationToken)
+            => (_options?.PerChatSerialize ?? true)
+                ? AcquireChatLockAsync(chatId, cancellationToken)
+                : Task.FromResult<IDisposable>(NoopDisposable.Instance);
+
+        sealed class NoopDisposable : IDisposable
+        {
+            public static readonly NoopDisposable Instance = new();
+            public void Dispose() { }
         }
 
         /// <summary>

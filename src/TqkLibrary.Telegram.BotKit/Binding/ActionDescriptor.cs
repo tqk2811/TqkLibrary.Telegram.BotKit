@@ -21,6 +21,22 @@ namespace TqkLibrary.Telegram.BotKit.Binding
         public required MethodInfo Method { get; init; }
         public required ParameterBinding[] Parameters { get; init; }
 
+        /// <summary>
+        /// Compiled delegate built once at registry construction time. Replaces the per-dispatch
+        /// <see cref="MethodInfo.Invoke(object?, object?[])"/> reflection call (10-50x slower).
+        /// Returns the method's raw return value (Task / ValueTask / object / null for void).
+        /// </summary>
+        public required Func<object, object?[], object?> Invoker { get; init; }
+
+        /// <summary>
+        /// Cached factory for the module type (one per <see cref="ModuleType"/>, shared across
+        /// descriptors of the same class). Wraps the <c>ObjectFactory</c> built by
+        /// <see cref="ActivatorUtilities.CreateFactory(Type, Type[])"/> so the per-dispatch
+        /// constructor scan that <see cref="ActivatorUtilities.CreateInstance(IServiceProvider, Type, object[])"/>
+        /// would do is paid only once at registry construction time.
+        /// </summary>
+        public required Func<IServiceProvider, object> ModuleFactory { get; init; }
+
         // Command
         public string? CommandName { get; init; }
         public int CommandOrder { get; init; }

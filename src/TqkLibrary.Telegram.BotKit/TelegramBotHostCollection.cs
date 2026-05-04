@@ -10,8 +10,11 @@ namespace TqkLibrary.Telegram.BotKit
         readonly ConcurrentDictionary<string, TelegramBotHost> _hosts = new(StringComparer.OrdinalIgnoreCase);
         // key = WebhookPath (resolved from token via IBotWebhookPathResolver) — used to route incoming webhooks
         readonly ConcurrentDictionary<string, TelegramBotHost> _webhookHosts = new(StringComparer.Ordinal);
-        // serialize Add* to avoid two threads racing on the same token
-        readonly SemaphoreSlim _startLock = new(1, 1);
+        // Per-token in-flight start. The first caller to GetOrAdd publishes the Lazy that wraps
+        // StartHostAsync; concurrent callers for the same token await the same Task. Callers for
+        // different tokens never block each other (was: a single global SemaphoreSlim).
+        readonly ConcurrentDictionary<string, Lazy<Task<TelegramBotHost>>> _startTasks =
+            new(StringComparer.OrdinalIgnoreCase);
 
         readonly IServiceProvider _serviceProvider;
         readonly ModuleActionRegistry _registry;
@@ -55,40 +58,61 @@ namespace TqkLibrary.Telegram.BotKit
             return AddAndStartCoreAsync(token, webhookBaseUrl, cancellationToken);
         }
 
-        async Task<TelegramBotHost> AddAndStartCoreAsync(string token, string? webhookBaseUrl, CancellationToken cancellationToken)
+        Task<TelegramBotHost> AddAndStartCoreAsync(string token, string? webhookBaseUrl, CancellationToken cancellationToken)
         {
             if (_hosts.TryGetValue(token, out TelegramBotHost? existing))
-                return existing;
+                return Task.FromResult(existing);
 
-            await _startLock.WaitAsync(cancellationToken);
+            Lazy<Task<TelegramBotHost>> lazy = _startTasks.GetOrAdd(
+                token,
+                t => new Lazy<Task<TelegramBotHost>>(
+                    () => StartHostAsync(t, webhookBaseUrl, cancellationToken),
+                    LazyThreadSafetyMode.ExecutionAndPublication));
+
+            return AwaitStartAsync(token, lazy);
+        }
+
+        async Task<TelegramBotHost> AwaitStartAsync(string token, Lazy<Task<TelegramBotHost>> lazy)
+        {
             try
             {
-                if (_hosts.TryGetValue(token, out existing))
-                    return existing;
-
-                string? webhookPath = null;
-                string? webhookUrl = null;
-                if (webhookBaseUrl is not null)
-                {
-                    webhookPath = _pathResolver.ResolvePath(token);
-                    webhookUrl = $"{webhookBaseUrl.TrimEnd('/')}/{webhookPath}";
-                }
-
-                TelegramBotHost host = new(
-                    token, webhookUrl, webhookPath,
-                    _serviceProvider, _registry, _loggerFactory);
-
-                await host.StartAsync(cancellationToken);
-                _hosts[token] = host;
-                if (webhookPath is not null)
-                    _webhookHosts[webhookPath] = host;
-
-                return host;
+                return await lazy.Value;
             }
-            finally
+            catch
             {
-                _startLock.Release();
+                // Remove the failed Lazy so a subsequent call can retry. Compare-then-remove via
+                // KeyValuePair overload (or its ICollection equivalent on netstandard2.0) ensures
+                // we don't drop a fresh Lazy that another thread may have just installed.
+#if NET5_0_OR_GREATER
+                _startTasks.TryRemove(new KeyValuePair<string, Lazy<Task<TelegramBotHost>>>(token, lazy));
+#else
+                ((ICollection<KeyValuePair<string, Lazy<Task<TelegramBotHost>>>>)_startTasks)
+                    .Remove(new KeyValuePair<string, Lazy<Task<TelegramBotHost>>>(token, lazy));
+#endif
+                throw;
             }
+        }
+
+        async Task<TelegramBotHost> StartHostAsync(string token, string? webhookBaseUrl, CancellationToken cancellationToken)
+        {
+            string? webhookPath = null;
+            string? webhookUrl = null;
+            if (webhookBaseUrl is not null)
+            {
+                webhookPath = _pathResolver.ResolvePath(token);
+                webhookUrl = $"{webhookBaseUrl.TrimEnd('/')}/{webhookPath}";
+            }
+
+            TelegramBotHost host = new(
+                token, webhookUrl, webhookPath,
+                _serviceProvider, _registry, _loggerFactory);
+
+            await host.StartAsync(cancellationToken);
+            _hosts[token] = host;
+            if (webhookPath is not null)
+                _webhookHosts[webhookPath] = host;
+
+            return host;
         }
 
         /// <summary>Stop the bot and remove it from the collection.</summary>

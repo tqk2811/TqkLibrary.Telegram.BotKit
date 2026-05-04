@@ -38,6 +38,16 @@ namespace TqkLibrary.Telegram.BotKit
         public bool AutoAnswerCallback { get; set; } = true;
 
         /// <summary>
+        /// true (default) = serialize updates per <c>chatId</c> through a refcounted
+        /// <see cref="System.Threading.SemaphoreSlim"/>, so two updates from the same chat never
+        /// run their handlers concurrently. Set to false when handlers are stateless / read-only
+        /// and the serialization cost (and the head-of-line blocking on a slow handler) is not
+        /// worth the safety. Disabling does NOT remove the per-update DI scope or chat-state
+        /// caching — those still run; only the lock is skipped.
+        /// </summary>
+        public bool PerChatSerialize { get; set; } = true;
+
+        /// <summary>
         /// Scan the assembly containing <typeparamref name="T"/> for every <see cref="CallbackModule"/>.
         /// Only types deriving from <see cref="CallbackModule"/> are registered — command classes are skipped.
         /// </summary>
