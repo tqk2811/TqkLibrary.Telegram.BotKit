@@ -1,0 +1,14 @@
+global using Microsoft.Extensions.Caching.Memory;
+global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Logging;
+global using Microsoft.Extensions.Options;
+global using System.Collections.Concurrent;
+global using System.Reflection;
+global using System.Text.RegularExpressions;
+global using Telegram.Bot;
+global using Telegram.Bot.Polling;
+global using Telegram.Bot.Types;
+global using Telegram.Bot.Types.Enums;
+global using Telegram.Bot.Types.ReplyMarkups;
+global using TqkLibrary.Telegram.BotKit.Attributes;
+global using TqkLibrary.Telegram.BotKit.Models;

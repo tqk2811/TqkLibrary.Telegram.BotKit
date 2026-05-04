@@ -1,0 +1,12 @@
+global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Logging;
+global using Telegram.Bot;
+global using Telegram.Bot.Types;
+global using Telegram.Bot.Types.Enums;
+global using Telegram.Bot.Types.ReplyMarkups;
+global using TqkLibrary.Telegram.BotKit;
+global using TqkLibrary.Telegram.BotKit.Attributes;
+global using TqkLibrary.Telegram.BotKit.Extensions;
+global using TqkLibrary.Telegram.BotKit.Handlers;
+global using TqkLibrary.Telegram.BotKit.SimpleDemo;
+global using Microsoft.Extensions.Localization;

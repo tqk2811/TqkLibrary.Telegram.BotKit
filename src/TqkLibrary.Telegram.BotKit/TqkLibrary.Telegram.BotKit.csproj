@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<Import Project="..\ProjectBuildProperties.targets" />
+
+	<ItemGroup>
+		<PackageReference Include="Telegram.Bot" />
+		<PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+		<PackageReference Include="Microsoft.Extensions.Localization" />
+	</ItemGroup>
+
+</Project>

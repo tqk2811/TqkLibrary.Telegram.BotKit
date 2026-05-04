@@ -1,0 +1,98 @@
+using TqkLibrary.Telegram.BotKit.Handlers;
+
+namespace TqkLibrary.Telegram.BotKit
+{
+    public class TelegramBotKitOptions
+    {
+        /// <summary>Assemblies to scan for modules (<see cref="CallbackModule"/>).</summary>
+        internal readonly List<Assembly> ModuleAssemblies = new();
+
+        /// <summary>Manually registered module types. Deduped against assembly scan results.</summary>
+        internal readonly List<Type> ModuleTypes = new();
+
+        /// <summary>Manually registered command types. Deduped across calls.</summary>
+        internal readonly List<Type> CommandTypes = new();
+
+        /// <summary>
+        /// Hook invoked on every received update (Message/CallbackQuery). Receives the scoped IServiceProvider,
+        /// Telegram UserId, username (nullable), and CancellationToken. Useful for guest upsert, rate limiting, etc.
+        /// </summary>
+        public Func<IServiceProvider, long, string?, CancellationToken, Task>? OnUserInteractionAsync { get; set; }
+
+        /// <summary>
+        /// List of <see cref="UpdateType"/>s Telegram is allowed to push to the bot (passed to the webhook
+        /// <c>SetWebhook</c> call and the polling <c>ReceiverOptions.AllowedUpdates</c>).
+        /// Default: [<see cref="UpdateType.Message"/>, <see cref="UpdateType.CallbackQuery"/>] —
+        /// matching the two types <see cref="BotUpdateDispatcher"/> currently handles.
+        /// Set to null to let Telegram apply its own default (every type except chat_member, message_reaction, ...).
+        /// </summary>
+        public IReadOnlyList<UpdateType>? AllowedUpdates { get; set; } =
+            [UpdateType.Message, UpdateType.CallbackQuery];
+
+        /// <summary>
+        /// true (default) = after the callback handler returns, the dispatcher calls
+        /// <c>AnswerCallbackQuery(callbackId)</c> automatically so the Telegram client stops the spinner —
+        /// the handler may still answer manually (e.g. with a text popup); the second auto-answer throws
+        /// "query is too old" and is caught silently. Set to false for fully manual handling.
+        /// </summary>
+        public bool AutoAnswerCallback { get; set; } = true;
+
+        /// <summary>
+        /// Scan the assembly containing <typeparamref name="T"/> for every <see cref="CallbackModule"/>.
+        /// Only types deriving from <see cref="CallbackModule"/> are registered — command classes are skipped.
+        /// </summary>
+        public TelegramBotKitOptions AddModulesFromAssemblyOf<T>()
+        {
+            Assembly assembly = typeof(T).Assembly;
+            if (!ModuleAssemblies.Contains(assembly))
+                ModuleAssemblies.Add(assembly);
+            return this;
+        }
+
+        /// <summary>Manually register a single module type (skipping assembly scan).</summary>
+        public TelegramBotKitOptions AddModule<T>() where T : CallbackModule
+        {
+            if (!ModuleTypes.Contains(typeof(T)))
+                ModuleTypes.Add(typeof(T));
+            return this;
+        }
+
+        /// <summary>Manually register several module types. Each must be a concrete class deriving from <see cref="CallbackModule"/>.</summary>
+        public TelegramBotKitOptions AddModules(params Type[] types)
+        {
+            foreach (Type t in types)
+            {
+                if (t.IsAbstract || !typeof(CallbackModule).IsAssignableFrom(t))
+                    throw new ArgumentException(
+                        $"Type {t.FullName} must be a concrete class deriving from {nameof(CallbackModule)}.",
+                        nameof(types));
+                if (!ModuleTypes.Contains(t))
+                    ModuleTypes.Add(t);
+            }
+            return this;
+        }
+
+        /// <summary>Manually register a single command class containing <c>/command</c> handlers.</summary>
+        public TelegramBotKitOptions AddCommand<T>() where T : CommandModule
+        {
+            if (!CommandTypes.Contains(typeof(T)))
+                CommandTypes.Add(typeof(T));
+            return this;
+        }
+
+        /// <summary>Manually register several command types. Each must be a concrete class deriving from <see cref="CommandModule"/>.</summary>
+        public TelegramBotKitOptions AddCommands(params Type[] types)
+        {
+            foreach (Type t in types)
+            {
+                if (t.IsAbstract || !typeof(CommandModule).IsAssignableFrom(t))
+                    throw new ArgumentException(
+                        $"Type {t.FullName} must be a concrete class deriving from {nameof(CommandModule)}.",
+                        nameof(types));
+                if (!CommandTypes.Contains(t))
+                    CommandTypes.Add(t);
+            }
+            return this;
+        }
+    }
+}

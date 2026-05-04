@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <data name="WelcomeText" xml:space="preserve"><value>👋 Welcome to the TqkLibrary.Telegram.BotKit demo!
+
+Please pick an action:</value></data>
+  <data name="AboutText" xml:space="preserve"><value>TqkLibrary.Telegram.BotKit demo bot
+Mode: long polling (direct socket to Telegram, no webhook required)
+BotId: {0}
+ChatId: {1}
+Language: {2}
+Echo count: {3}
+Last echo: {4}</value></data>
+  <data name="HelpText" xml:space="preserve"><value>TqkLibrary.Telegram.BotKit demo bot
+
+Available commands:
+  /start - Open the main menu
+  /help  - Show this help message
+  /echo &lt;text&gt; - Echo back the provided text
+  /lang  - Change language</value></data>
+  <data name="EchoNoText" xml:space="preserve"><value>No text provided. Example: /echo hello</value></data>
+  <data name="EchoReply" xml:space="preserve"><value>Echo: {0}</value></data>
+  <data name="EchoPrompt" xml:space="preserve"><value>Send any message and the bot will echo it back.</value></data>
+  <data name="EchoCancelled" xml:space="preserve"><value>Echo mode cancelled.</value></data>
+  <data name="LangPrompt" xml:space="preserve"><value>Choose your language:</value></data>
+  <data name="LangChanged" xml:space="preserve"><value>Language updated to {0}.</value></data>
+  <data name="BtnMainMenu" xml:space="preserve"><value>🏠 Main menu</value></data>
+  <data name="BtnAbout" xml:space="preserve"><value>ℹ️ About</value></data>
+  <data name="BtnLanguage" xml:space="preserve"><value>🌐 Language</value></data>
+  <data name="BtnEchoStart" xml:space="preserve"><value>📝 Echo (wait for text)</value></data>
+  <data name="BtnEchoCancel" xml:space="preserve"><value>✖️ Cancel</value></data>
+  <data name="BtnBack" xml:space="preserve"><value>⬅️ Back</value></data>
+  <data name="DescStart" xml:space="preserve"><value>Start using the bot</value></data>
+  <data name="DescHelp" xml:space="preserve"><value>Show usage</value></data>
+  <data name="DescEcho" xml:space="preserve"><value>Echo back a message</value></data>
+  <data name="DescLang" xml:space="preserve"><value>Change language</value></data>
+  <data name="LangDisplayEnglish" xml:space="preserve"><value>🇬🇧 English</value></data>
+  <data name="LangDisplayVietnamese" xml:space="preserve"><value>🇻🇳 Tiếng Việt</value></data>
+</root>

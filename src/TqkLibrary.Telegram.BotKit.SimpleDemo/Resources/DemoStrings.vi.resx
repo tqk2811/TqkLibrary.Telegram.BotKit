@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <data name="WelcomeText" xml:space="preserve"><value>👋 Chào mừng đến demo TqkLibrary.Telegram.BotKit!
+
+Vui lòng chọn thao tác:</value></data>
+  <data name="AboutText" xml:space="preserve"><value>Bot demo TqkLibrary.Telegram.BotKit
+Chế độ: long polling (socket trực tiếp tới Telegram, không cần webhook)
+BotId: {0}
+ChatId: {1}
+Ngôn ngữ: {2}
+Số lần echo: {3}
+Echo gần nhất: {4}</value></data>
+  <data name="HelpText" xml:space="preserve"><value>Bot demo TqkLibrary.Telegram.BotKit
+
+Lệnh khả dụng:
+  /start - Mở menu chính
+  /help  - Hiển thị hướng dẫn
+  /echo &lt;text&gt; - Echo lại nội dung gửi kèm
+  /lang  - Đổi ngôn ngữ</value></data>
+  <data name="EchoNoText" xml:space="preserve"><value>Bạn chưa nhập nội dung. Ví dụ: /echo hello</value></data>
+  <data name="EchoReply" xml:space="preserve"><value>Echo: {0}</value></data>
+  <data name="EchoPrompt" xml:space="preserve"><value>Hãy gửi 1 tin nhắn bất kỳ, bot sẽ echo lại.</value></data>
+  <data name="EchoCancelled" xml:space="preserve"><value>Đã huỷ chế độ echo.</value></data>
+  <data name="LangPrompt" xml:space="preserve"><value>Vui lòng chọn ngôn ngữ:</value></data>
+  <data name="LangChanged" xml:space="preserve"><value>Đã đổi ngôn ngữ sang {0}.</value></data>
+  <data name="BtnMainMenu" xml:space="preserve"><value>🏠 Menu chính</value></data>
+  <data name="BtnAbout" xml:space="preserve"><value>ℹ️ Giới thiệu</value></data>
+  <data name="BtnLanguage" xml:space="preserve"><value>🌐 Ngôn ngữ</value></data>
+  <data name="BtnEchoStart" xml:space="preserve"><value>📝 Echo (chờ nhập text)</value></data>
+  <data name="BtnEchoCancel" xml:space="preserve"><value>✖️ Huỷ</value></data>
+  <data name="BtnBack" xml:space="preserve"><value>⬅️ Quay lại</value></data>
+  <data name="DescStart" xml:space="preserve"><value>Bắt đầu sử dụng bot</value></data>
+  <data name="DescHelp" xml:space="preserve"><value>Xem hướng dẫn</value></data>
+  <data name="DescEcho" xml:space="preserve"><value>Echo lại tin nhắn</value></data>
+  <data name="DescLang" xml:space="preserve"><value>Đổi ngôn ngữ</value></data>
+  <data name="LangDisplayEnglish" xml:space="preserve"><value>🇬🇧 English</value></data>
+  <data name="LangDisplayVietnamese" xml:space="preserve"><value>🇻🇳 Tiếng Việt</value></data>
+</root>
