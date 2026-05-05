@@ -42,8 +42,14 @@ namespace TqkLibrary.Telegram.BotKit.Extensions
                         $"Ensure you pass a resx auto-generated type.");
                 string? text = rm.GetString(resourceName, culture ?? CultureInfo.CurrentUICulture);
                 if (text is not null) return text;
+                // Resource missing: prefer the literal fallback if the caller provided one rather
+                // than crashing the entire keyboard render. Only throw when there is genuinely
+                // nothing to show, so a partial localization (e.g. new key not yet translated)
+                // degrades to the developer-supplied literal instead of taking the bot down.
+                if (!string.IsNullOrEmpty(literalFallback)) return literalFallback;
                 throw new InvalidOperationException(
-                    $"Resource '{resourceName}' does not exist in {resourceType.FullName}.");
+                    $"Resource '{resourceName}' does not exist in {resourceType.FullName} " +
+                    $"and no literal fallback was provided.");
             }
 
             if (fallbackLocalizer is not null)
