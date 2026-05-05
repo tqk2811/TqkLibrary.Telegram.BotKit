@@ -192,8 +192,30 @@ namespace TqkLibrary.Telegram.BotKit.Routing
             return true;
         }
 
-        /// <summary>Render callback data from the template and placeholder values. Preserves the original separator chars.</summary>
+        /// <summary>
+        /// Render callback data from the template and placeholder values. Preserves the original separator chars.
+        /// Enum values render as the member name (readable for logs/debugging) by default; if the resulting
+        /// callback data would exceed <see cref="MaxCallbackDataBytes"/>, render attempts a second pass with
+        /// enum values rendered as their numeric form (<c>Enum.ToString("D")</c>) — match path supports both
+        /// (see <see cref="RouteParameterConverter.TryParse"/>).
+        /// </summary>
         public string Format(IReadOnlyDictionary<string, object?> values)
+        {
+            string data = FormatCore(values, useEnumNames: true);
+            int bytes = System.Text.Encoding.UTF8.GetByteCount(data);
+            if (bytes > MaxCallbackDataBytes && ContainsEnumValue(values))
+            {
+                data = FormatCore(values, useEnumNames: false);
+                bytes = System.Text.Encoding.UTF8.GetByteCount(data);
+            }
+            if (bytes > MaxCallbackDataBytes)
+                throw new InvalidOperationException(
+                    $"Callback data '{data}' exceeds {MaxCallbackDataBytes} bytes ({bytes} bytes). " +
+                    $"Template '{_raw}' needs to be shorter.");
+            return data;
+        }
+
+        string FormatCore(IReadOnlyDictionary<string, object?> values, bool useEnumNames)
         {
             var sb = new System.Text.StringBuilder();
             for (int i = 0; i < _segments.Length; i++)
@@ -211,7 +233,7 @@ namespace TqkLibrary.Telegram.BotKit.Routing
                         throw new ArgumentException(
                             $"Route template '{_raw}': missing value for placeholder '{name}'.",
                             nameof(values));
-                    string formatted = RouteParameterConverter.Format(v);
+                    string formatted = RouteParameterConverter.Format(v, useEnumNames);
                     if (formatted.IndexOfAny(Separators) >= 0)
                         throw new ArgumentException(
                             $"Route template '{_raw}': value for placeholder '{name}' contains a separator character '/' or '|'.",
@@ -219,14 +241,14 @@ namespace TqkLibrary.Telegram.BotKit.Routing
                     sb.Append(formatted);
                 }
             }
+            return sb.ToString();
+        }
 
-            string data = sb.ToString();
-            int bytes = System.Text.Encoding.UTF8.GetByteCount(data);
-            if (bytes > MaxCallbackDataBytes)
-                throw new InvalidOperationException(
-                    $"Callback data '{data}' exceeds {MaxCallbackDataBytes} bytes ({bytes} bytes). " +
-                    $"Template '{_raw}' needs to be shorter.");
-            return data;
+        static bool ContainsEnumValue(IReadOnlyDictionary<string, object?> values)
+        {
+            foreach (object? v in values.Values)
+                if (v is Enum) return true;
+            return false;
         }
 
         public override string ToString() => _raw;

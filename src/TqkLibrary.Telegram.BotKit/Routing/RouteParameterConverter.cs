@@ -85,8 +85,13 @@ namespace TqkLibrary.Telegram.BotKit.Routing
                 catch (ArgumentException) { parsed = false; }
                 catch (OverflowException) { parsed = false; }
 #endif
+                // Letter-leading: name form (incl. Flags combined like "Read,Write") — Enum.TryParse already validated each token.
+                // Flags enum: any bit-combination is semantically valid, so a numeric raw doesn't need to be a defined member.
+                // Otherwise: numeric scalar enum — must map to a declared member.
                 if (parsed && e is not null
-                    && (char.IsLetter(raw[0]) || Enum.IsDefined(underlying, e)))
+                    && (char.IsLetter(raw[0])
+                        || underlying.IsDefined(typeof(FlagsAttribute), inherit: false)
+                        || Enum.IsDefined(underlying, e)))
                 { value = e; return true; }
             }
 
@@ -94,8 +99,16 @@ namespace TqkLibrary.Telegram.BotKit.Routing
             return false;
         }
 
-        /// <summary>Render a value to its string form for inclusion in callback data.</summary>
-        public static string Format(object? value)
+        /// <summary>
+        /// Render a value to its string form for inclusion in callback data.
+        /// Scalar enum values render as the member name when <paramref name="useEnumNames"/> is <c>true</c>
+        /// (default — readable), or the underlying numeric value (<c>"D"</c> format) otherwise — used
+        /// by <see cref="RouteTemplate.Format"/> as a length fallback when the name form would push
+        /// the callback data past the 64-byte Telegram limit.
+        /// Flags enums always render numeric: the name form (<c>"Read, Write"</c>) wastes bytes on a
+        /// space + comma per flag and is unnecessary since the parser accepts both forms.
+        /// </summary>
+        public static string Format(object? value, bool useEnumNames = true)
         {
             if (value is null) return string.Empty;
             return value switch
@@ -105,7 +118,9 @@ namespace TqkLibrary.Telegram.BotKit.Routing
                 long l => l.ToString(CultureInfo.InvariantCulture),
                 bool b => b ? "true" : "false",
                 Guid g => g.ToString("D"),
-                Enum e => e.ToString(),
+                Enum e => useEnumNames && !e.GetType().IsDefined(typeof(FlagsAttribute), inherit: false)
+                    ? e.ToString()
+                    : e.ToString("D"),
                 _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty
             };
         }
