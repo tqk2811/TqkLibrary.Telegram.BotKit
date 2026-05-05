@@ -148,6 +148,13 @@ namespace TqkLibrary.Telegram.BotKit
 
         sealed class AsyncChatStateBootstrapper<T> : IChatStateBootstrapper where T : class
         {
+            // Per-(botId, chatId) Lazy used to dedupe concurrent loads. Without the per-chat lock
+            // (PerChatSerialize=false) two updates for the same chat would otherwise both miss the
+            // cache and both invoke the factory — handlers would receive different chat-state
+            // instances. Static so all bootstrappers for type T share the in-flight map.
+            static readonly ConcurrentDictionary<string, Lazy<Task<T>>> _inFlight =
+                new(StringComparer.Ordinal);
+
             readonly IServiceProvider _sp;
             readonly BotKitChatStateOptions<T> _options;
             readonly Func<IServiceProvider, CancellationToken, ValueTask<T>> _factory;
@@ -169,10 +176,36 @@ namespace TqkLibrary.Telegram.BotKit
                 string key = BuildCacheKey(typeof(T), ctx, _options);
                 if (cache.TryGetValue(key, out _)) return;
 
+                Lazy<Task<T>> lazy = _inFlight.GetOrAdd(
+                    key,
+                    k => new Lazy<Task<T>>(
+                        () => LoadAndCacheAsync(cache, k, cancellationToken),
+                        LazyThreadSafetyMode.ExecutionAndPublication));
+                try
+                {
+                    await lazy.Value;
+                }
+                finally
+                {
+                    // Compare-then-remove via the KeyValuePair overload (or its ICollection
+                    // equivalent on netstandard2.0) so we don't drop a fresh Lazy a parallel
+                    // call has just installed under the same key.
+#if NET5_0_OR_GREATER
+                    _inFlight.TryRemove(new KeyValuePair<string, Lazy<Task<T>>>(key, lazy));
+#else
+                    ((ICollection<KeyValuePair<string, Lazy<Task<T>>>>)_inFlight)
+                        .Remove(new KeyValuePair<string, Lazy<Task<T>>>(key, lazy));
+#endif
+                }
+            }
+
+            async Task<T> LoadAndCacheAsync(IMemoryCache cache, string key, CancellationToken cancellationToken)
+            {
                 T value = await _factory(_sp, cancellationToken);
                 using ICacheEntry entry = cache.CreateEntry(key);
                 ApplyExpiration(entry, _options);
                 entry.Value = value;
+                return value;
             }
         }
     }
