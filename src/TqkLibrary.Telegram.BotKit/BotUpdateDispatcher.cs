@@ -103,9 +103,13 @@ namespace TqkLibrary.Telegram.BotKit
         async Task OnCallbackQueryAsync(Update update, CancellationToken cancellationToken)
         {
             CallbackQuery callbackQuery = update.CallbackQuery!;
-            long chatId = callbackQuery.Message!.Chat.Id;
             long telegramUserId = callbackQuery.From.Id;
             string? telegramUsername = callbackQuery.From.Username;
+            // Inline-mode callbacks (button on a message sent into another chat via the bot's
+            // inline query — identified by InlineMessageId, not Message) carry no Chat object.
+            // Fall back to the user's id so ChatId/lock-key still have a stable, per-conversation
+            // value the handler code can rely on.
+            long chatId = callbackQuery.Message?.Chat.Id ?? telegramUserId;
 
             using IDisposable _ = await AcquireChatLockOrNoopAsync(chatId, cancellationToken);
 
