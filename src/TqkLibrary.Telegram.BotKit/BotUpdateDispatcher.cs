@@ -23,6 +23,9 @@ namespace TqkLibrary.Telegram.BotKit
         readonly ILoggerFactory _loggerFactory;
         readonly ILogger<BotUpdateDispatcher> _logger;
         readonly TelegramBotKitOptions? _options;
+        // 0 = not yet warned, 1 = warned. Set via Interlocked so the warning fires exactly once
+        // per dispatcher even under concurrent updates.
+        int _warnedMissingRoutingAccessor;
         // Per-chat lock: serialize updates for the same chatId so user state mutations stay atomic.
         // Refcounted so the entry is removed (and SemaphoreSlim disposed) once the last waiter releases —
         // bounded memory regardless of how many distinct chats a long-running bot ever sees.
@@ -97,8 +100,21 @@ namespace TqkLibrary.Telegram.BotKit
 
             // Routing key lives in the user-defined chat-state, exposed through IRoutingStateAccessor
             // when AddBotKitChatState<T>(opts.MapPendingInputKey(...)) was wired. When the accessor
-            // isn't registered, [OnUserInput] is silently disabled and we fall through to regex.
-            string? pendingKey = scope.ServiceProvider.GetService<IRoutingStateAccessor>()?.PendingInputKey;
+            // isn't registered, [OnUserInput] is silently disabled and we fall through to regex —
+            // warn (once per dispatcher) so the misconfiguration is visible instead of "my handler
+            // never fires" debugging.
+            IRoutingStateAccessor? routingAccessor = scope.ServiceProvider.GetService<IRoutingStateAccessor>();
+            if (routingAccessor is null
+                && _registry.HasUserInputHandlers
+                && Interlocked.Exchange(ref _warnedMissingRoutingAccessor, 1) == 0)
+            {
+                _logger.LogWarning(
+                    "Bot {BotId}: [OnUserInput] handlers are registered but no IRoutingStateAccessor is available. " +
+                    "Call AddBotKitChatState<T>() with MapPendingInputKey(...) (or inherit BotKitChatStateBase) so the " +
+                    "framework can read the routing key. [OnUserInput] handlers will not fire until this is fixed.",
+                    _botId);
+            }
+            string? pendingKey = routingAccessor?.PendingInputKey;
             if (!string.IsNullOrWhiteSpace(pendingKey))
                 await DispatchUserInputAsync(scope, ctx, pendingKey, update, message, cancellationToken);
             else if (!string.IsNullOrWhiteSpace(text))

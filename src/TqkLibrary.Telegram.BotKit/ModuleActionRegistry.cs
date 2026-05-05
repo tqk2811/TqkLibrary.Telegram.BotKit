@@ -245,6 +245,9 @@ namespace TqkLibrary.Telegram.BotKit
         public ActionDescriptor? FindUserInputHandler(string key)
             => _userInputByKey.TryGetValue(key, out ActionDescriptor? d) ? d : null;
 
+        /// <summary>True if any module declared at least one <see cref="OnUserInputAttribute"/> handler.</summary>
+        public bool HasUserInputHandlers => _userInputByKey.Count > 0;
+
         public IReadOnlyList<ActionDescriptor> AllRegexes => _regexes;
 
         /// <summary>Find the inline button descriptor matching the callback data. Returns the descriptor and the captured values.</summary>
