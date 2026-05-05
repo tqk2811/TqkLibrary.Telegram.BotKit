@@ -108,9 +108,26 @@ namespace TqkLibrary.Telegram.BotKit
                 _serviceProvider, _registry, _loggerFactory);
 
             await host.StartAsync(cancellationToken);
-            _hosts[token] = host;
-            if (webhookPath is not null)
-                _webhookHosts[webhookPath] = host;
+
+            // StartAsync already registered the webhook with Telegram (or started polling). If
+            // installing into the dictionaries throws after that point, Telegram still believes
+            // it should push updates here — clean up before bubbling, otherwise the webhook is
+            // an orphan we have no record of.
+            try
+            {
+                _hosts[token] = host;
+                if (webhookPath is not null)
+                    _webhookHosts[webhookPath] = host;
+            }
+            catch
+            {
+                try { await host.StopAsync(); }
+                catch (Exception stopEx)
+                {
+                    _logger.LogWarning(stopEx, "Bot {BotId}: rollback after failed registration also failed", host.BotId);
+                }
+                throw;
+            }
 
             return host;
         }
