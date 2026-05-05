@@ -40,4 +40,15 @@ Lệnh khả dụng:
   <data name="DescLang" xml:space="preserve"><value>Đổi ngôn ngữ</value></data>
   <data name="LangDisplayEnglish" xml:space="preserve"><value>🇬🇧 English</value></data>
   <data name="LangDisplayVietnamese" xml:space="preserve"><value>🇻🇳 Tiếng Việt</value></data>
+  <data name="BtnExpressions" xml:space="preserve"><value>🧪 Showcase biểu thức</value></data>
+  <data name="ExpressionsSummary" xml:space="preserve"><value>🧪 Showcase biểu thức cho inline button
+
+Mỗi nút bên dưới sinh callback data qua một nhánh xử lý expression khác nhau. Bấm thử để giá trị đã parse hiển thị vào phần tóm tắt này.
+
+Lựa chọn gần nhất:
+• Enum thường (theo tên): {0}
+• Ép kiểu (int): {1}
+• Enum [Flags] (số): {2}
+• Toán tử explicit long: {3}
+• Toán tử implicit Guid: {4}</value></data>
 </root>

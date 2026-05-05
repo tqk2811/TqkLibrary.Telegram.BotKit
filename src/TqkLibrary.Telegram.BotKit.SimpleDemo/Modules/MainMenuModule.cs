@@ -78,6 +78,10 @@ namespace TqkLibrary.Telegram.BotKit.SimpleDemo.Modules
                 },
                 new[]
                 {
+                    registry.ToInlineButton<ExpressionShowcaseModule>(c => c.Open(default!, default), localizer: l),
+                },
+                new[]
+                {
                     registry.ToInlineButton<MainMenuModule>(c => c.About(default!, default), localizer: l),
                     registry.ToInlineButton<LanguageModule>(c => c.OpenPicker(default!, default), localizer: l),
                 },

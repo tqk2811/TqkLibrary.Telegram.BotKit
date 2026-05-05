@@ -40,4 +40,15 @@ Available commands:
   <data name="DescLang" xml:space="preserve"><value>Change language</value></data>
   <data name="LangDisplayEnglish" xml:space="preserve"><value>🇬🇧 English</value></data>
   <data name="LangDisplayVietnamese" xml:space="preserve"><value>🇻🇳 Tiếng Việt</value></data>
+  <data name="BtnExpressions" xml:space="preserve"><value>🧪 Expression showcase</value></data>
+  <data name="ExpressionsSummary" xml:space="preserve"><value>🧪 Inline-button expression showcase
+
+Each button below renders callback data through a different argument-expression path. Press one and the parsed value comes back into this summary.
+
+Last picks:
+• Scalar enum (by name): {0}
+• (int) cast: {1}
+• Flags enum (numeric): {2}
+• Explicit op long: {3}
+• Implicit op Guid: {4}</value></data>
 </root>
