@@ -1,5 +1,12 @@
 namespace TqkLibrary.Telegram.BotKit.Tests;
 
+public enum FixtureSiteName
+{
+    Alpha = 1,
+    Bravo = 2,
+    Charlie = 3,
+}
+
 public class ExpressionFixtureModule : CallbackModule
 {
     [InlineButton("ef|{id:guid}")]
@@ -10,6 +17,9 @@ public class ExpressionFixtureModule : CallbackModule
 
     [InlineButton("ef|entry")]
     public Task Entry(CallbackQuery cb, CancellationToken ct) => Task.CompletedTask;
+
+    [InlineButton("ef|g|{site}")]
+    public Task PickByInt(int site, CallbackQuery cb, CancellationToken ct) => Task.CompletedTask;
 }
 
 [TestClass]
@@ -78,5 +88,16 @@ public class InlineButtonBuilderTests
         Assert.IsNotNull(match);
         Assert.AreEqual(nameof(ExpressionFixtureModule.Back), match.Value.descriptor.Method.Name);
         Assert.AreEqual(id.ToString("D"), match.Value.values["id"]);
+    }
+
+    [TestMethod]
+    public void BuildCallbackData_EnumCastToInt_RendersNumeric()
+    {
+        // (int)enum in the expression must propagate the cast — otherwise the formatter sees the
+        // enum value, renders the member name, and the int-typed route param fails to match.
+        FixtureSiteName site = FixtureSiteName.Bravo;
+        string data = Registry.BuildCallbackData<ExpressionFixtureModule>(
+            c => c.PickByInt((int)site, default!, default));
+        Assert.AreEqual("ef|g|2", data);
     }
 }

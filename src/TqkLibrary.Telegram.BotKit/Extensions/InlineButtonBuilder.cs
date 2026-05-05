@@ -82,7 +82,8 @@ namespace TqkLibrary.Telegram.BotKit.Extensions
         ///   - <c>ConstantExpression</c>: literal values, captured-closure root.
         ///   - <c>DefaultExpression</c>: <c>default!</c> / <c>default(T)</c>.
         ///   - <c>MemberExpression</c>: closure field, property chain — recurse + reflect.
-        ///   - <c>UnaryExpression</c> Convert/Quote: recurse on the operand.
+        ///   - <c>UnaryExpression</c> Convert/ConvertChecked: recurse + apply the cast (so <c>(int)enumVar</c> yields int, not the enum).
+        ///   - <c>UnaryExpression</c> Quote: recurse on the operand (no value transform).
         /// Anything else (method calls, lambdas) falls back to <c>Expression.Compile()</c>.
         /// </summary>
         static object? EvaluateExpression(Expression expr)
@@ -110,12 +111,42 @@ namespace TqkLibrary.Telegram.BotKit.Extensions
 
                 case ExpressionType.Convert:
                 case ExpressionType.ConvertChecked:
+                {
+                    var unary = (UnaryExpression)expr;
+                    object? operand = EvaluateExpression(unary.Operand);
+                    return ApplyConvert(operand, unary.Type);
+                }
+
                 case ExpressionType.Quote:
                     return EvaluateExpression(((UnaryExpression)expr).Operand);
 
                 default:
                     return CompileEvaluate(expr);
             }
+        }
+
+        /// <summary>
+        /// Apply a runtime cast equivalent to a C# <c>Convert</c> expression node. Required so explicit casts
+        /// in the user's expression (e.g. <c>(int)g.SiteName</c>) propagate the destination type into the
+        /// formatter — otherwise the underlying enum would leak through and the route would render the enum
+        /// name instead of the integer the method signature is binding against.
+        /// </summary>
+        static object? ApplyConvert(object? value, Type targetType)
+        {
+            Type underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
+            if (value is null) return null;
+            if (underlying.IsInstanceOfType(value)) return value;
+            if (underlying.IsEnum) return Enum.ToObject(underlying, value);
+            if (value is Enum && underlying.IsPrimitive)
+                return Convert.ChangeType(value, underlying, CultureInfo.InvariantCulture);
+            if (value is IConvertible)
+            {
+                try { return Convert.ChangeType(value, underlying, CultureInfo.InvariantCulture); }
+                catch (InvalidCastException) { return value; }
+                catch (FormatException) { return value; }
+                catch (OverflowException) { return value; }
+            }
+            return value;
         }
 
         static object? CompileEvaluate(Expression expr)
