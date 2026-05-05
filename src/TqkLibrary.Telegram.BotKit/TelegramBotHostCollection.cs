@@ -69,28 +69,53 @@ namespace TqkLibrary.Telegram.BotKit
                     () => StartHostAsync(t, webhookBaseUrl, cancellationToken),
                     LazyThreadSafetyMode.ExecutionAndPublication));
 
-            return AwaitStartAsync(token, lazy);
+            return AwaitStartAsync(token, lazy, cancellationToken);
         }
 
-        async Task<TelegramBotHost> AwaitStartAsync(string token, Lazy<Task<TelegramBotHost>> lazy)
+        async Task<TelegramBotHost> AwaitStartAsync(string token, Lazy<Task<TelegramBotHost>> lazy, CancellationToken cancellationToken)
         {
+            // The Lazy captures the FIRST caller's cancellation token. Subsequent callers wait on
+            // the same Task and would otherwise ignore their own cancellation. Wrap with
+            // Task.WaitAsync so each caller can bail when its own CT cancels — without disturbing
+            // the start itself, which keeps running for callers that haven't cancelled.
+            Task<TelegramBotHost> task = lazy.Value;
             try
             {
-                TelegramBotHost host = await lazy.Value;
-                // Success: evict so the dictionary doesn't grow unboundedly across many tokens
-                // (and so the Lazy doesn't keep the host alive after StopAsync removes it from
-                // _hosts — host would otherwise be unreachable but uncollectable).
+#if NET6_0_OR_GREATER
+                TelegramBotHost host = await task.WaitAsync(cancellationToken);
+#else
+                TelegramBotHost host = await WaitAsyncShim(task, cancellationToken);
+#endif
                 EvictStartLazy(token, lazy);
                 return host;
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Caller-side cancel: the underlying start task may still be running for other
+                // waiters. Don't evict — let them succeed (or fail and evict themselves).
+                throw;
+            }
             catch
             {
-                // Failure: evict so a subsequent call can retry — Lazy with ExecutionAndPublication
-                // caches the exception forever otherwise.
+                // Real start failure: evict so the next call can retry.
                 EvictStartLazy(token, lazy);
                 throw;
             }
         }
+
+#if !NET6_0_OR_GREATER
+        static async Task<T> WaitAsyncShim<T>(Task<T> task, CancellationToken cancellationToken)
+        {
+            if (!cancellationToken.CanBeCanceled || task.IsCompleted) return await task;
+            var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (cancellationToken.Register(s => ((TaskCompletionSource<T>)s!).TrySetCanceled(), tcs))
+            {
+                Task<T> winner = await Task.WhenAny(task, tcs.Task);
+                if (winner == tcs.Task) throw new OperationCanceledException(cancellationToken);
+            }
+            return await task;
+        }
+#endif
 
         void EvictStartLazy(string token, Lazy<Task<TelegramBotHost>> lazy)
         {
