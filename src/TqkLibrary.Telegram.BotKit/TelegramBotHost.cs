@@ -172,7 +172,10 @@ namespace TqkLibrary.Telegram.BotKit
             if (!IsRunning) throw new InvalidOperationException($"Bot {BotId} is not started.");
             // IStringLocalizer (when registered) lets attributes that omit DescriptionResourceType
             // still resolve via the registered fallback localizer, with culture flipped per request.
-            IStringLocalizer? localizer = _serviceProvider.GetService<IStringLocalizer>();
+            // Resolve through a temporary scope so a user who registered IStringLocalizer as Scoped
+            // (rare but legal) doesn't trip the "Cannot resolve scoped from root" guard.
+            using IServiceScope diScope = _serviceProvider.CreateScope();
+            IStringLocalizer? localizer = diScope.ServiceProvider.GetService<IStringLocalizer>();
             List<BotCommand> commands = _registry.GetBotCommands(commandType, culture, localizer).ToList();
             if (commands.Count == 0)
             {
