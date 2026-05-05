@@ -22,10 +22,14 @@ namespace TqkLibrary.Telegram.BotKit
                 options.CommandTypes);
             services.AddSingleton(registry);
 
-            // Register every handler (Module + Command) as scoped so constructor DI works when
-            // ActivatorUtilities.CreateInstance resolves them through the per-update scope.
+            // The dispatcher does NOT resolve handlers via DI — each ActionDescriptor carries a
+            // pre-built ObjectFactory (see ModuleActionRegistry.GetOrCreateModuleFactory) that
+            // ActivatorUtilities builds at registry init. Registration here is for users who want
+            // to GetService<MyHandler>() themselves (rare, but possible). TryAdd so the user can
+            // override with a different lifetime or factory; Transient because each resolve must
+            // get its own instance — handlers carry per-dispatch ModuleContext mutable state.
             foreach (Type t in registry.HandlerTypes)
-                services.AddScoped(t);
+                services.TryAddTransient(t);
 
             services.AddMemoryCache();
 
