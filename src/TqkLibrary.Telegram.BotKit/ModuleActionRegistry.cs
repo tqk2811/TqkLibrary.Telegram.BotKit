@@ -220,7 +220,23 @@ namespace TqkLibrary.Telegram.BotKit
         {
             if (!_moduleFactories.TryGetValue(handlerType, out Func<IServiceProvider, object>? factory))
             {
-                ObjectFactory raw = ActivatorUtilities.CreateFactory(handlerType, Type.EmptyTypes);
+                ObjectFactory raw;
+                try
+                {
+                    raw = ActivatorUtilities.CreateFactory(handlerType, Type.EmptyTypes);
+                }
+                catch (Exception ex)
+                {
+                    // ActivatorUtilities throws InvalidOperationException for missing public ctor,
+                    // ambiguous best ctor, or non-injectable parameter type — all of which surface
+                    // as a stack trace inside the framework with no clue which handler is at fault.
+                    // Re-throw with the handler's full name + a pointer to the likely cause.
+                    throw new InvalidOperationException(
+                        $"Could not build constructor factory for handler '{handlerType.FullName}'. " +
+                        $"BotKit handlers must expose a single public constructor whose parameters are all " +
+                        $"resolvable from the DI container. See inner exception for the original error.",
+                        ex);
+                }
                 factory = sp => raw(sp, null);
                 _moduleFactories[handlerType] = factory;
             }
