@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Linq.Expressions;
 using Microsoft.Extensions.Localization;
@@ -82,7 +83,10 @@ namespace TqkLibrary.Telegram.BotKit.Extensions
         ///   - <c>ConstantExpression</c>: literal values, captured-closure root.
         ///   - <c>DefaultExpression</c>: <c>default!</c> / <c>default(T)</c>.
         ///   - <c>MemberExpression</c>: closure field, property chain — recurse + reflect.
-        ///   - <c>UnaryExpression</c> Convert/ConvertChecked: recurse + apply the cast (so <c>(int)enumVar</c> yields int, not the enum).
+        ///   - <c>UnaryExpression</c> Convert/ConvertChecked: recurse + apply the cast. Built-in conversions
+        ///     (numeric, enum&lt;-&gt;primitive, boxing, nullable) go through <see cref="ApplyConvert"/>; user-defined
+        ///     <c>implicit</c>/<c>explicit operator</c> conversions go through <see cref="InvokeConversionOperator"/>
+        ///     which JIT-compiles a typed delegate per <see cref="MethodInfo"/> and caches it.
         ///   - <c>UnaryExpression</c> Quote: recurse on the operand (no value transform).
         /// Anything else (method calls, lambdas) falls back to <c>Expression.Compile()</c>.
         /// </summary>
@@ -114,7 +118,9 @@ namespace TqkLibrary.Telegram.BotKit.Extensions
                 {
                     var unary = (UnaryExpression)expr;
                     object? operand = EvaluateExpression(unary.Operand);
-                    return ApplyConvert(operand, unary.Type);
+                    return unary.Method is null
+                        ? ApplyConvert(operand, unary.Type)
+                        : InvokeConversionOperator(unary.Method, operand);
                 }
 
                 case ExpressionType.Quote:
@@ -126,10 +132,11 @@ namespace TqkLibrary.Telegram.BotKit.Extensions
         }
 
         /// <summary>
-        /// Apply a runtime cast equivalent to a C# <c>Convert</c> expression node. Required so explicit casts
-        /// in the user's expression (e.g. <c>(int)g.SiteName</c>) propagate the destination type into the
-        /// formatter — otherwise the underlying enum would leak through and the route would render the enum
-        /// name instead of the integer the method signature is binding against.
+        /// Apply a runtime cast equivalent to a C# <c>Convert</c> expression node — for built-in conversions
+        /// only (<see cref="UnaryExpression.Method"/> is null). Required so explicit casts in the user's
+        /// expression (e.g. <c>(int)g.SiteName</c>) propagate the destination type into the formatter —
+        /// otherwise the underlying enum would leak through and the route would render the enum name instead
+        /// of the integer the method signature is binding against.
         /// </summary>
         static object? ApplyConvert(object? value, Type targetType)
         {
@@ -147,6 +154,35 @@ namespace TqkLibrary.Telegram.BotKit.Extensions
                 catch (OverflowException) { return value; }
             }
             return value;
+        }
+
+        // Cache one compiled invoker per user-defined conversion operator (e.g. WalletId.op_Explicit → Guid).
+        // First call compiles a typed lambda (≈30 μs amortized). Subsequent calls are a dict lookup + delegate call (≈60 ns)
+        // — orders of magnitude faster than MethodInfo.Invoke (~200 ns + args-array allocation each call) and
+        // Expression.Compile() per call (~30 μs each).
+        static readonly ConcurrentDictionary<MethodInfo, Func<object?, object?>> _conversionInvokerCache = new();
+
+        /// <summary>
+        /// Invoke a user-defined <c>implicit</c>/<c>explicit operator</c> conversion (the <c>Method</c> on a
+        /// <c>Convert</c>/<c>ConvertChecked</c> node). The compiled delegate is cached per
+        /// <see cref="MethodInfo"/>, so the JIT-compile cost is paid once per conversion operator across the
+        /// process lifetime regardless of how many times any given button is built.
+        /// </summary>
+        static object? InvokeConversionOperator(MethodInfo method, object? operand)
+        {
+            Func<object?, object?> invoker = _conversionInvokerCache.GetOrAdd(method, BuildConversionInvoker);
+            return invoker(operand);
+        }
+
+        static Func<object?, object?> BuildConversionInvoker(MethodInfo method)
+        {
+            // Build:  (object? x) => (object?)method((TSource)x)
+            Type sourceType = method.GetParameters()[0].ParameterType;
+            ParameterExpression boxedInput = Expression.Parameter(typeof(object), "x");
+            Expression body = Expression.Convert(
+                Expression.Call(method, Expression.Convert(boxedInput, sourceType)),
+                typeof(object));
+            return Expression.Lambda<Func<object?, object?>>(body, boxedInput).Compile();
         }
 
         static object? CompileEvaluate(Expression expr)

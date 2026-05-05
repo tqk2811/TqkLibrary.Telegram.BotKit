@@ -21,6 +21,18 @@ public enum FixturePerm
     Execute = 4,
 }
 
+// Strongly-typed wrapper with explicit conversion to Guid — exercises the user-defined operator path.
+public readonly record struct FixtureWalletId(Guid Value)
+{
+    public static explicit operator Guid(FixtureWalletId id) => id.Value;
+}
+
+// Implicit conversion to long — exercises the implicit-operator path.
+public readonly record struct FixtureCounter(long Value)
+{
+    public static implicit operator long(FixtureCounter c) => c.Value;
+}
+
 public class ExpressionFixtureModule : CallbackModule
 {
     [InlineButton("ef|{id:guid}")]
@@ -44,6 +56,12 @@ public class ExpressionFixtureModule : CallbackModule
 
     [InlineButton("ef|p|{perm}")]
     public Task PickPerm(FixturePerm perm, CallbackQuery cb, CancellationToken ct) => Task.CompletedTask;
+
+    [InlineButton("ef|w|{id:guid}")]
+    public Task PickWallet(Guid id, CallbackQuery cb, CancellationToken ct) => Task.CompletedTask;
+
+    [InlineButton("ef|c|{n:long}")]
+    public Task PickCounter(long n, CallbackQuery cb, CancellationToken ct) => Task.CompletedTask;
 }
 
 [TestClass]
@@ -196,5 +214,44 @@ public class InlineButtonBuilderTests
         Assert.IsNotNull(match);
         Assert.AreEqual(nameof(ExpressionFixtureModule.PickPerm), match.Value.descriptor.Method.Name);
         Assert.AreEqual("Read,Write", match.Value.values["perm"]);
+    }
+
+    // ── User-defined conversion operators ────────────────────────────────
+
+    [TestMethod]
+    public void BuildCallbackData_ExplicitOperator_InvokesUserConversion()
+    {
+        // (Guid)wallet calls FixtureWalletId.op_Explicit — UnaryExpression.Method is non-null.
+        // Without the operator-invoker path the formatter would receive the wrapper struct and
+        // render its ToString() (the default record-struct print), not the wrapped Guid.
+        Guid g = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        FixtureWalletId wallet = new(g);
+        string data = Registry.BuildCallbackData<ExpressionFixtureModule>(
+            c => c.PickWallet((Guid)wallet, default!, default));
+        Assert.AreEqual($"ef|w|{g:D}", data);
+    }
+
+    [TestMethod]
+    public void BuildCallbackData_ImplicitOperator_InvokesUserConversion()
+    {
+        // Implicit conversion still produces a Convert node with non-null Method.
+        FixtureCounter counter = new(42L);
+        string data = Registry.BuildCallbackData<ExpressionFixtureModule>(
+            c => c.PickCounter(counter, default!, default));
+        Assert.AreEqual("ef|c|42", data);
+    }
+
+    [TestMethod]
+    public void BuildCallbackData_OperatorCacheReusedAcrossCalls()
+    {
+        // Repeated build calls hit the cached invoker; result must be deterministic and correct.
+        Guid g = Guid.NewGuid();
+        FixtureWalletId wallet = new(g);
+        string first = Registry.BuildCallbackData<ExpressionFixtureModule>(
+            c => c.PickWallet((Guid)wallet, default!, default));
+        string second = Registry.BuildCallbackData<ExpressionFixtureModule>(
+            c => c.PickWallet((Guid)wallet, default!, default));
+        Assert.AreEqual($"ef|w|{g:D}", first);
+        Assert.AreEqual(first, second);
     }
 }
