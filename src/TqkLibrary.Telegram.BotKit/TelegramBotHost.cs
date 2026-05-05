@@ -20,6 +20,7 @@ namespace TqkLibrary.Telegram.BotKit
 
         BotUpdateDispatcher? _dispatcher;
         CancellationTokenSource? _cts;
+        Task? _receiveTask;
 
         /// <summary>Telegram UserId of the bot — populated after a successful <see cref="StartAsync"/>.</summary>
         public long BotId { get; private set; }
@@ -85,9 +86,11 @@ namespace TqkLibrary.Telegram.BotKit
             {
                 _cts = new CancellationTokenSource();
                 await _botClient.DeleteWebhook(dropPendingUpdates: true, cancellationToken: cancellationToken);
-                _botClient.StartReceiving(
-                    updateHandler: _dispatcher.HandleUpdateAsync,
-                    errorHandler: _dispatcher.HandleErrorAsync,
+                // ReceiveAsync (vs fire-and-forget StartReceiving) returns the polling Task so
+                // StopAsync can await it before disposing the CTS — otherwise an in-flight handler
+                // touching _cts.Token after Dispose would throw ObjectDisposedException.
+                _receiveTask = _botClient.ReceiveAsync(
+                    updateHandler: (IUpdateHandler)_dispatcher,
                     receiverOptions: new ReceiverOptions { AllowedUpdates = allowedUpdates?.ToArray() },
                     cancellationToken: _cts.Token);
                 _logger.LogInformation("Bot {BotId} (@{Username}) started polling", BotId, me.Username);
@@ -122,6 +125,16 @@ namespace TqkLibrary.Telegram.BotKit
 #else
                 _cts.Cancel();
 #endif
+                if (_receiveTask is not null)
+                {
+                    try { await _receiveTask; }
+                    catch (OperationCanceledException) { /* expected on cancel */ }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Bot {BotId}: polling task ended with exception during stop", BotId);
+                    }
+                    _receiveTask = null;
+                }
                 _cts.Dispose();
                 _cts = null;
             }

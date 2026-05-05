@@ -8,8 +8,13 @@ namespace TqkLibrary.Telegram.BotKit
     /// Dispatcher: receives an update → finds the action → binds parameters → invokes the module.
     /// Each <see cref="TelegramBotHost"/> creates its own instance.
     /// </summary>
-    public sealed class BotUpdateDispatcher
+    public sealed class BotUpdateDispatcher : IUpdateHandler
     {
+        Task IUpdateHandler.HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken ct)
+            => HandleUpdateAsync(bot, update, ct);
+        Task IUpdateHandler.HandleErrorAsync(ITelegramBotClient bot, Exception ex, HandleErrorSource source, CancellationToken ct)
+            => HandleErrorAsync(bot, ex, source, ct);
+
         readonly TelegramBotClient _bot;
         readonly string _botToken;
         readonly long _botId;
