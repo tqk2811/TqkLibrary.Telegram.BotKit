@@ -94,6 +94,13 @@ namespace TqkLibrary.Telegram.BotKit
             if (text is { Length: > 0 } && text[0] == '/')
             {
                 ParseCommand(text, out string commandName, out string? commandArgs);
+                if (commandName.Length == 0)
+                {
+                    // Malformed leading '/' (e.g. "/   abc" or "/@bot abc"): swallow at debug
+                    // level instead of letting DispatchCommand emit a misleading "/ not found" warning.
+                    _logger.LogDebug("Bot {BotId}: ignoring malformed command text '{Text}'", _botId, text);
+                    return;
+                }
                 await DispatchCommandAsync(scope, ctx, commandName, commandArgs, update, message, cancellationToken);
                 return;
             }
