@@ -76,21 +76,32 @@ namespace TqkLibrary.Telegram.BotKit
         {
             try
             {
-                return await lazy.Value;
+                TelegramBotHost host = await lazy.Value;
+                // Success: evict so the dictionary doesn't grow unboundedly across many tokens
+                // (and so the Lazy doesn't keep the host alive after StopAsync removes it from
+                // _hosts — host would otherwise be unreachable but uncollectable).
+                EvictStartLazy(token, lazy);
+                return host;
             }
             catch
             {
-                // Remove the failed Lazy so a subsequent call can retry. Compare-then-remove via
-                // KeyValuePair overload (or its ICollection equivalent on netstandard2.0) ensures
-                // we don't drop a fresh Lazy that another thread may have just installed.
-#if NET5_0_OR_GREATER
-                _startTasks.TryRemove(new KeyValuePair<string, Lazy<Task<TelegramBotHost>>>(token, lazy));
-#else
-                ((ICollection<KeyValuePair<string, Lazy<Task<TelegramBotHost>>>>)_startTasks)
-                    .Remove(new KeyValuePair<string, Lazy<Task<TelegramBotHost>>>(token, lazy));
-#endif
+                // Failure: evict so a subsequent call can retry — Lazy with ExecutionAndPublication
+                // caches the exception forever otherwise.
+                EvictStartLazy(token, lazy);
                 throw;
             }
+        }
+
+        void EvictStartLazy(string token, Lazy<Task<TelegramBotHost>> lazy)
+        {
+            // Compare-then-remove via the KeyValuePair overload (or its ICollection equivalent on
+            // netstandard2.0) ensures we don't drop a fresh Lazy that another thread just installed.
+#if NET5_0_OR_GREATER
+            _startTasks.TryRemove(new KeyValuePair<string, Lazy<Task<TelegramBotHost>>>(token, lazy));
+#else
+            ((ICollection<KeyValuePair<string, Lazy<Task<TelegramBotHost>>>>)_startTasks)
+                .Remove(new KeyValuePair<string, Lazy<Task<TelegramBotHost>>>(token, lazy));
+#endif
         }
 
         async Task<TelegramBotHost> StartHostAsync(string token, string? webhookBaseUrl, CancellationToken cancellationToken)
