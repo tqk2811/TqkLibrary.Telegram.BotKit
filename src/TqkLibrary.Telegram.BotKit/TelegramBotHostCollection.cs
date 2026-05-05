@@ -100,6 +100,7 @@ namespace TqkLibrary.Telegram.BotKit
             if (webhookBaseUrl is not null)
             {
                 webhookPath = _pathResolver.ResolvePath(token);
+                BotWebhookPathValidator.Validate(webhookPath, _pathResolver.GetType().Name);
                 webhookUrl = $"{webhookBaseUrl.TrimEnd('/')}/{webhookPath}";
             }
 
