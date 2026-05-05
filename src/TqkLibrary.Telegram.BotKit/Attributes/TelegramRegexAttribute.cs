@@ -10,11 +10,13 @@ namespace TqkLibrary.Telegram.BotKit.Attributes
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = true, Inherited = false)]
     public sealed class TelegramRegexAttribute : Attribute
     {
-        public TelegramRegexAttribute(string pattern, int order = int.MaxValue)
+        public TelegramRegexAttribute(string pattern, int order = int.MaxValue, bool compiled = true)
         {
             if (string.IsNullOrWhiteSpace(pattern))
                 throw new ArgumentException("Pattern must not be empty.", nameof(pattern));
-            Regex = new Regex(pattern, RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            RegexOptions options = RegexOptions.IgnoreCase;
+            if (compiled) options |= RegexOptions.Compiled;
+            Regex = new Regex(pattern, options);
             Order = order;
         }
 
