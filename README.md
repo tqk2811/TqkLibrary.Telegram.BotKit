@@ -239,6 +239,76 @@ the user's currently selected language. You can publish per-language menus with
 `SetCommandsAsync<TCommand>(culture, languageCode)` and per-chat menus with
 `scope: new BotCommandScopeChat { ChatId = chatId }`.
 
+## Handler method parameters
+
+Handler methods (`[TelegramCommand]`, `[InlineButton]`, `[OnUserInput]`,
+`[TelegramRegex]`) accept three categories of parameters. The framework
+binds them per-update — you don't write the wiring.
+
+### Well-known context types
+
+Matched by type, in any order:
+
+| Type | What it is |
+|------|-----------|
+| `Update` | The full Telegram `Update`. |
+| `Message` | The message attached to this update (also set for callbacks that carry a message). |
+| `CallbackQuery` | The callback query (only meaningful inside `[InlineButton]` handlers). |
+| `UpdateType` | The current update kind. |
+| `CancellationToken` | Pipeline cancellation token. |
+| `ModuleContext` | Per-update bundle: `ServiceProvider`, `Bot`, `BotToken`, `BotId`, `ChatId`, `TelegramUserId`, `Logger`. |
+
+```csharp
+[InlineButton("home")]
+public Task Home(CallbackQuery q, ModuleContext ctx, CancellationToken ct) { /* ... */ }
+```
+
+### `[CommandArg]` for /command payload
+
+Captures the text after the command name. Must be `string` or `string?`:
+
+```csharp
+[TelegramCommand("echo")]
+public Task Echo(Message m, [CommandArg] string? args, CancellationToken ct) { /* ... */ }
+```
+
+### Route placeholders
+
+Parameters whose name matches an `[InlineButton]` placeholder are filled
+from the parsed callback data — see [Typed route parameters](#4-typed-route-parameters).
+
+```csharp
+[InlineButton("set/{code}")]
+public Task Set(string code, CallbackQuery q, CancellationToken ct) { /* ... */ }
+```
+
+### DI services and chat-state
+
+**DI dependencies (including your chat-state class) must be injected through
+the module constructor, not as method parameters.** Declaring a service or
+chat-state directly on a handler method throws at startup with
+`Could not bind parameter ...`.
+
+```csharp
+public class MainMenuModule : CallbackModule
+{
+    readonly DemoChatState _state;
+    readonly IStringLocalizer _l;
+
+    public MainMenuModule(DemoChatState state, IStringLocalizer l) // DI here
+    {
+        _state = state;
+        _l = l;
+    }
+
+    [InlineButton("home")]
+    public Task Home(CallbackQuery q, CancellationToken ct)        // context types only
+    {
+        // _state and _l are already available
+    }
+}
+```
+
 ## Multi-bot hosting
 
 `TelegramBotHostCollection` is registered as a singleton and lets one process
