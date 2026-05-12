@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Extensions.Hosting;
+using TqkLibrary.Telegram.BotKit.SimpleDemo.Middleware;
 using TqkLibrary.Telegram.BotKit.SimpleDemo.Modules;
 
 namespace TqkLibrary.Telegram.BotKit.SimpleDemo
@@ -31,6 +32,37 @@ namespace TqkLibrary.Telegram.BotKit.SimpleDemo
             {
                 options.AddCommand<BotCommands>();
                 options.AddModulesFromAssemblyOf<MainMenuModule>();
+
+                // ---- Middleware pipeline ---------------------------------------------
+                // Registered in OUTSIDE-IN order: the first Use/UseMiddleware sees every
+                // later stage and the terminal dispatch. Two canonical uses:
+                //
+                //   1) Exception handler — wraps next(ctx) in try/catch.
+                //   2) Gate — short-circuits by NOT calling next(ctx).
+                //
+                // Class-based middleware is resolved per-update from the scoped provider
+                // (so it can declare scoped deps). Register first so it catches everything
+                // downstream, including gate-thrown exceptions.
+                options.UseMiddleware<ExceptionLoggingMiddleware>();
+
+                // Functional middleware: keep this bot 1-1 only. If somehow added to a
+                // group, leave immediately and short-circuit — no handler will run.
+                options.Use(async (ctx, next) =>
+                {
+                    if (ctx.Message is { Chat.Type: var t and not ChatType.Private })
+                    {
+                        ctx.Logger.LogWarning(
+                            "Bot {BotId}: added to chat type={ChatType} (chat={ChatId}) — leaving",
+                            ctx.BotId, t, ctx.ChatId);
+                        try { await ctx.Bot.LeaveChat(ctx.ChatId, ctx.CancellationToken); }
+                        catch (Exception ex)
+                        {
+                            ctx.Logger.LogWarning(ex, "LeaveChat {ChatId} failed", ctx.ChatId);
+                        }
+                        return; // short-circuit — terminal dispatch never runs.
+                    }
+                    await next(ctx);
+                });
             });
             // Single state class for the whole bot. DemoChatState : BotKitChatStateBase, so the
             // framework auto-binds the routing/language ports to the base properties — no Map

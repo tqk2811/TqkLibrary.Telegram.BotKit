@@ -309,6 +309,90 @@ public class MainMenuModule : CallbackModule
 }
 ```
 
+## Middleware pipeline
+
+Every received update flows through a user-defined pipeline before the
+framework dispatches to a handler. Each stage can inspect / mutate flow,
+short-circuit, or wrap the rest in a `try/catch`. Two canonical uses:
+
+| Use case            | How                                                      |
+|---------------------|----------------------------------------------------------|
+| Centralised error handling | wrap `await next(ctx)` in `try/catch`             |
+| Gate / authorisation       | inspect `ctx.Message`/`CallbackQuery`, `return` to short-circuit |
+
+Stages run in registration order — **the first registered is outermost**, so
+place exception handlers first and gates after them.
+
+### Functional middleware (inline)
+
+```csharp
+builder.Services.AddTelegramBotKit(options =>
+{
+    options.Use(async (ctx, next) =>
+    {
+        // Private-chat-only gate. Short-circuit by NOT calling next(ctx).
+        if (ctx.Message is { Chat.Type: var t and not ChatType.Private })
+        {
+            await ctx.Bot.LeaveChat(ctx.ChatId, ctx.CancellationToken);
+            return;
+        }
+        await next(ctx);
+    });
+});
+```
+
+### Class-based middleware (DI)
+
+Implement `IBotMiddleware`. Register with `UseMiddleware<T>()`. The instance is
+resolved from the per-update scoped provider, so it may take scoped deps.
+
+```csharp
+public sealed class ExceptionLoggingMiddleware : IBotMiddleware
+{
+    readonly ILogger<ExceptionLoggingMiddleware> _logger;
+    public ExceptionLoggingMiddleware(ILogger<ExceptionLoggingMiddleware> logger) => _logger = logger;
+
+    public async Task InvokeAsync(BotMiddlewareContext ctx, BotRequestDelegate next)
+    {
+        try { await next(ctx); }
+        catch (OperationCanceledException) when (ctx.CancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Bot {BotId}: unhandled (chat={Chat}, user={User})",
+                ctx.BotId, ctx.ChatId, ctx.TelegramUserId);
+            // Swallow so the polling loop keeps running.
+        }
+    }
+}
+```
+
+```csharp
+options.UseMiddleware<ExceptionLoggingMiddleware>();
+options.Use(/* gate ... */);
+```
+
+### What's in `BotMiddlewareContext`
+
+`Services` (scoped `IServiceProvider`), `Bot`, `BotId`, `BotToken`, `Update`,
+`UpdateType`, `Message?`, `CallbackQuery?`, `ChatId`, `TelegramUserId`,
+`TelegramUsername?`, `Logger`, `CancellationToken`. Per-action data
+(route values, `[CommandArg]`) is NOT here — that only exists inside the
+matched handler, after the terminal stage.
+
+### Order of operations per update
+
+1. Acquire per-chat lock (when `PerChatSerialize` is on — default).
+2. Create per-update DI scope, populate `IUpdateContext`, bootstrap chat
+   states, apply culture.
+3. **Run the middleware pipeline** (this section).
+4. Terminal stage: invoke the per-update `OnUserInteractionAsync` hook,
+   then dispatch to the matched handler.
+
+A middleware that returns without calling `next(ctx)` skips steps 4 entirely
+(no `OnUserInteractionAsync`, no handler). The outer dispatcher still has a
+safety-net `try/catch` that logs unhandled exceptions so the polling loop
+survives even if your middleware throws.
+
 ## Multi-bot hosting
 
 `TelegramBotHostCollection` is registered as a singleton and lets one process
