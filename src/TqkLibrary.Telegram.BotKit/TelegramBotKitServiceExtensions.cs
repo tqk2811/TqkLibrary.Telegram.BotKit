@@ -31,6 +31,12 @@ namespace TqkLibrary.Telegram.BotKit
             foreach (Type t in registry.HandlerTypes)
                 services.TryAddTransient(t);
 
+            // Class-based middleware resolved per-update from the scoped provider. Transient so
+            // a middleware can declare scoped deps without lifetime mismatch; TryAdd so the user
+            // may override the lifetime (e.g. AddSingleton) before/after AddTelegramBotKit.
+            foreach (Type t in options.MiddlewareTypes)
+                services.TryAddTransient(t);
+
             services.AddMemoryCache();
 
             // Per-update ambient context. Dispatcher fills the holder on each scope; user services

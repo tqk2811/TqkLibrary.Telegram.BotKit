@@ -1,6 +1,7 @@
 using System.Globalization;
 using TqkLibrary.Telegram.BotKit.Binding;
 using TqkLibrary.Telegram.BotKit.Handlers;
+using TqkLibrary.Telegram.BotKit.Middleware;
 
 namespace TqkLibrary.Telegram.BotKit
 {
@@ -23,6 +24,9 @@ namespace TqkLibrary.Telegram.BotKit
         readonly ILoggerFactory _loggerFactory;
         readonly ILogger<BotUpdateDispatcher> _logger;
         readonly TelegramBotKitOptions? _options;
+        // Built once at construction from _options.Middlewares. Per dispatch we just invoke
+        // _pipeline(ctx) — the chain is closed over the captured terminal delegate.
+        readonly BotRequestDelegate _pipeline;
         // 0 = not yet warned, 1 = warned. Set via Interlocked so the warning fires exactly once
         // per dispatcher even under concurrent updates.
         int _warnedMissingRoutingAccessor;
@@ -47,6 +51,27 @@ namespace TqkLibrary.Telegram.BotKit
             _loggerFactory = loggerFactory;
             _logger = loggerFactory.CreateLogger<BotUpdateDispatcher>();
             _options = serviceProvider.GetService<TelegramBotKitOptions>();
+            _pipeline = BuildPipeline(_options?.Middlewares);
+        }
+
+        /// <summary>
+        /// Compose the user-registered middleware list into a single delegate, with
+        /// <see cref="TerminalDispatchAsync"/> as the innermost stage. Built once per
+        /// dispatcher — pipeline shape is immutable after registration.
+        /// </summary>
+        BotRequestDelegate BuildPipeline(IReadOnlyList<Func<BotMiddlewareContext, BotRequestDelegate, Task>>? middlewares)
+        {
+            BotRequestDelegate next = TerminalDispatchAsync;
+            if (middlewares is null || middlewares.Count == 0) return next;
+            // Iterate right-to-left so the FIRST registered middleware ends up outermost
+            // (it sees the full pipeline below it — matches ASP.NET Core convention).
+            for (int i = middlewares.Count - 1; i >= 0; i--)
+            {
+                var mw = middlewares[i];
+                BotRequestDelegate localNext = next;
+                next = ctx => mw(ctx, localNext);
+            }
+            return next;
         }
 
         internal async Task HandleUpdateAsync(ITelegramBotClient _, Update update, CancellationToken cancellationToken)
@@ -85,47 +110,23 @@ namespace TqkLibrary.Telegram.BotKit
             PopulateUpdateContext(scope, chatId, telegramUserId);
             await BootstrapChatStatesAsync(scope.ServiceProvider, cancellationToken);
             ApplyCulture(scope.ServiceProvider);
-            ModuleContext ctx = CreateContext(scope, chatId, telegramUserId, loggerType: typeof(BotUpdateDispatcher));
 
-            if (_options?.OnUserInteractionAsync is not null)
-                await _options.OnUserInteractionAsync(scope.ServiceProvider, telegramUserId, telegramUsername, cancellationToken);
-
-            string? text = message.Text?.Trim();
-            if (text is { Length: > 0 } && text[0] == '/')
+            BotMiddlewareContext mwCtx = new()
             {
-                ParseCommand(text, out string commandName, out string? commandArgs);
-                if (commandName.Length == 0)
-                {
-                    // Malformed leading '/' (e.g. "/   abc" or "/@bot abc"): swallow at debug
-                    // level instead of letting DispatchCommand emit a misleading "/ not found" warning.
-                    _logger.LogDebug("Bot {BotId}: ignoring malformed command text '{Text}'", _botId, text);
-                    return;
-                }
-                await DispatchCommandAsync(scope, ctx, commandName, commandArgs, update, message, cancellationToken);
-                return;
-            }
-
-            // Routing key lives in the user-defined chat-state, exposed through IRoutingStateAccessor
-            // when AddBotKitChatState<T>(opts.MapPendingInputKey(...)) was wired. When the accessor
-            // isn't registered, [OnUserInput] is silently disabled and we fall through to regex —
-            // warn (once per dispatcher) so the misconfiguration is visible instead of "my handler
-            // never fires" debugging.
-            IRoutingStateAccessor? routingAccessor = scope.ServiceProvider.GetService<IRoutingStateAccessor>();
-            if (routingAccessor is null
-                && _registry.HasUserInputHandlers
-                && Interlocked.Exchange(ref _warnedMissingRoutingAccessor, 1) == 0)
-            {
-                _logger.LogWarning(
-                    "Bot {BotId}: [OnUserInput] handlers are registered but no IRoutingStateAccessor is available. " +
-                    "Call AddBotKitChatState<T>() with MapPendingInputKey(...) (or inherit BotKitChatStateBase) so the " +
-                    "framework can read the routing key. [OnUserInput] handlers will not fire until this is fixed.",
-                    _botId);
-            }
-            string? pendingKey = routingAccessor?.PendingInputKey;
-            if (!string.IsNullOrWhiteSpace(pendingKey))
-                await DispatchUserInputAsync(scope, ctx, pendingKey, update, message, cancellationToken);
-            else if (!string.IsNullOrWhiteSpace(text))
-                await DispatchRegexAsync(scope, ctx, text, update, message, cancellationToken);
+                Services = scope.ServiceProvider,
+                Bot = _bot,
+                BotId = _botId,
+                BotToken = _botToken,
+                Update = update,
+                UpdateType = UpdateType.Message,
+                Message = message,
+                ChatId = chatId,
+                TelegramUserId = telegramUserId,
+                TelegramUsername = telegramUsername,
+                Logger = _logger,
+                CancellationToken = cancellationToken,
+            };
+            await _pipeline(mwCtx);
         }
 
         async Task OnCallbackQueryAsync(Update update, CancellationToken cancellationToken)
@@ -145,43 +146,125 @@ namespace TqkLibrary.Telegram.BotKit
             PopulateUpdateContext(scope, chatId, telegramUserId);
             await BootstrapChatStatesAsync(scope.ServiceProvider, cancellationToken);
             ApplyCulture(scope.ServiceProvider);
-            ModuleContext ctx = CreateContext(scope, chatId, telegramUserId, loggerType: typeof(BotUpdateDispatcher));
+
+            BotMiddlewareContext mwCtx = new()
+            {
+                Services = scope.ServiceProvider,
+                Bot = _bot,
+                BotId = _botId,
+                BotToken = _botToken,
+                Update = update,
+                UpdateType = UpdateType.CallbackQuery,
+                CallbackQuery = callbackQuery,
+                ChatId = chatId,
+                TelegramUserId = telegramUserId,
+                TelegramUsername = telegramUsername,
+                Logger = _logger,
+                CancellationToken = cancellationToken,
+            };
 
             try
             {
-                if (_options?.OnUserInteractionAsync is not null)
-                    await _options.OnUserInteractionAsync(scope.ServiceProvider, telegramUserId, telegramUsername, cancellationToken);
-
-                string data = callbackQuery.Data ?? "";
-                var match = _registry.MatchInlineButton(data);
-                if (match is null)
-                {
-                    _logger.LogWarning("Bot {BotId}: no inline handler for callback '{Data}'", _botId, data);
-                    return;
-                }
-
-                ActionDescriptor desc = match.Value.descriptor;
-                ModuleContext actionCtx = ctx with
-                {
-                    // Re-wrap the logger by module type so logs report the correct category.
-                    Logger = (ILogger)scope.ServiceProvider.GetRequiredService(typeof(ILogger<>).MakeGenericType(desc.ModuleType))
-                };
-                var updCtx = new UpdateContext
-                {
-                    Module = actionCtx,
-                    Update = update,
-                    UpdateType = UpdateType.CallbackQuery,
-                    CallbackQuery = callbackQuery,
-                    RouteValues = match.Value.values,
-                    CancellationToken = cancellationToken,
-                };
-                await ModuleActionInvoker.InvokeAsync(desc, scope.ServiceProvider, updCtx);
+                await _pipeline(mwCtx);
             }
             finally
             {
+                // Auto-answer fires even if middleware short-circuited or threw — the Telegram
+                // client otherwise keeps the spinner forever. Exceptions inside middleware that
+                // escaped the user's error handler still bubble out of _pipeline; HandleUpdateAsync
+                // catches them, but we run this finally first so the spinner clears regardless.
                 if (_options?.AutoAnswerCallback ?? true)
                     await TryAutoAnswerCallbackAsync(callbackQuery.Id, cancellationToken);
             }
+        }
+
+        /// <summary>
+        /// Terminal stage of the middleware pipeline — invokes <c>OnUserInteractionAsync</c>
+        /// (if configured) then routes to the appropriate dispatch path. Built once per
+        /// dispatcher; the closed-over <see cref="_pipeline"/> calls into here last.
+        /// </summary>
+        async Task TerminalDispatchAsync(BotMiddlewareContext ctx)
+        {
+            IServiceProvider services = ctx.Services;
+            CancellationToken cancellationToken = ctx.CancellationToken;
+
+            if (_options?.OnUserInteractionAsync is not null)
+                await _options.OnUserInteractionAsync(services, ctx.TelegramUserId, ctx.TelegramUsername, cancellationToken);
+
+            ModuleContext modCtx = CreateContext(services, ctx.ChatId, ctx.TelegramUserId, loggerType: typeof(BotUpdateDispatcher));
+
+            if (ctx.UpdateType == UpdateType.Message && ctx.Message is not null)
+                await DispatchMessageTerminalAsync(services, modCtx, ctx.Update, ctx.Message, cancellationToken);
+            else if (ctx.UpdateType == UpdateType.CallbackQuery && ctx.CallbackQuery is not null)
+                await DispatchCallbackTerminalAsync(services, modCtx, ctx.Update, ctx.CallbackQuery, cancellationToken);
+        }
+
+        async Task DispatchMessageTerminalAsync(IServiceProvider services, ModuleContext ctx, Update update, Message message, CancellationToken cancellationToken)
+        {
+            string? text = message.Text?.Trim();
+            if (text is { Length: > 0 } && text[0] == '/')
+            {
+                ParseCommand(text, out string commandName, out string? commandArgs);
+                if (commandName.Length == 0)
+                {
+                    // Malformed leading '/' (e.g. "/   abc" or "/@bot abc"): swallow at debug
+                    // level instead of letting DispatchCommand emit a misleading "/ not found" warning.
+                    _logger.LogDebug("Bot {BotId}: ignoring malformed command text '{Text}'", _botId, text);
+                    return;
+                }
+                await DispatchCommandAsync(services, ctx, commandName, commandArgs, update, message, cancellationToken);
+                return;
+            }
+
+            // Routing key lives in the user-defined chat-state, exposed through IRoutingStateAccessor
+            // when AddBotKitChatState<T>(opts.MapPendingInputKey(...)) was wired. When the accessor
+            // isn't registered, [OnUserInput] is silently disabled and we fall through to regex —
+            // warn (once per dispatcher) so the misconfiguration is visible instead of "my handler
+            // never fires" debugging.
+            IRoutingStateAccessor? routingAccessor = services.GetService<IRoutingStateAccessor>();
+            if (routingAccessor is null
+                && _registry.HasUserInputHandlers
+                && Interlocked.Exchange(ref _warnedMissingRoutingAccessor, 1) == 0)
+            {
+                _logger.LogWarning(
+                    "Bot {BotId}: [OnUserInput] handlers are registered but no IRoutingStateAccessor is available. " +
+                    "Call AddBotKitChatState<T>() with MapPendingInputKey(...) (or inherit BotKitChatStateBase) so the " +
+                    "framework can read the routing key. [OnUserInput] handlers will not fire until this is fixed.",
+                    _botId);
+            }
+            string? pendingKey = routingAccessor?.PendingInputKey;
+            if (!string.IsNullOrWhiteSpace(pendingKey))
+                await DispatchUserInputAsync(services, ctx, pendingKey, update, message, cancellationToken);
+            else if (!string.IsNullOrWhiteSpace(text))
+                await DispatchRegexAsync(services, ctx, text, update, message, cancellationToken);
+        }
+
+        async Task DispatchCallbackTerminalAsync(IServiceProvider services, ModuleContext ctx, Update update, CallbackQuery callbackQuery, CancellationToken cancellationToken)
+        {
+            string data = callbackQuery.Data ?? "";
+            var match = _registry.MatchInlineButton(data);
+            if (match is null)
+            {
+                _logger.LogWarning("Bot {BotId}: no inline handler for callback '{Data}'", _botId, data);
+                return;
+            }
+
+            ActionDescriptor desc = match.Value.descriptor;
+            ModuleContext actionCtx = ctx with
+            {
+                // Re-wrap the logger by module type so logs report the correct category.
+                Logger = (ILogger)services.GetRequiredService(typeof(ILogger<>).MakeGenericType(desc.ModuleType))
+            };
+            var updCtx = new UpdateContext
+            {
+                Module = actionCtx,
+                Update = update,
+                UpdateType = UpdateType.CallbackQuery,
+                CallbackQuery = callbackQuery,
+                RouteValues = match.Value.values,
+                CancellationToken = cancellationToken,
+            };
+            await ModuleActionInvoker.InvokeAsync(desc, services, updCtx);
         }
 
         /// <summary>
@@ -311,7 +394,7 @@ namespace TqkLibrary.Telegram.BotKit
             }
         }
 
-        async Task DispatchCommandAsync(IServiceScope scope, ModuleContext ctx, string name, string? commandArgs, Update update, Message message, CancellationToken cancellationToken)
+        async Task DispatchCommandAsync(IServiceProvider services, ModuleContext ctx, string name, string? commandArgs, Update update, Message message, CancellationToken cancellationToken)
         {
             ActionDescriptor? desc = _registry.FindCommand(name);
             if (desc is null)
@@ -319,7 +402,7 @@ namespace TqkLibrary.Telegram.BotKit
                 _logger.LogWarning("Bot {BotId}: no handler for /{Command}", _botId, name);
                 return;
             }
-            await InvokeAsync(desc, scope, ctx, update, UpdateType.Message, message, callbackQuery: null, routeValues: null, commandArgs, cancellationToken);
+            await InvokeAsync(desc, services, ctx, update, UpdateType.Message, message, callbackQuery: null, routeValues: null, commandArgs, cancellationToken);
         }
 
         /// <summary>
@@ -345,7 +428,7 @@ namespace TqkLibrary.Telegram.BotKit
             }
         }
 
-        async Task DispatchUserInputAsync(IServiceScope scope, ModuleContext ctx, string inputKey, Update update, Message message, CancellationToken cancellationToken)
+        async Task DispatchUserInputAsync(IServiceProvider services, ModuleContext ctx, string inputKey, Update update, Message message, CancellationToken cancellationToken)
         {
             ActionDescriptor? desc = _registry.FindUserInputHandler(inputKey);
             if (desc is null)
@@ -353,23 +436,23 @@ namespace TqkLibrary.Telegram.BotKit
                 _logger.LogWarning("Bot {BotId}: OnUserInput handler '{Key}' not found", _botId, inputKey);
                 return;
             }
-            await InvokeAsync(desc, scope, ctx, update, UpdateType.Message, message, callbackQuery: null, routeValues: null, commandArgs: null, cancellationToken);
+            await InvokeAsync(desc, services, ctx, update, UpdateType.Message, message, callbackQuery: null, routeValues: null, commandArgs: null, cancellationToken);
         }
 
-        async Task DispatchRegexAsync(IServiceScope scope, ModuleContext ctx, string text, Update update, Message message, CancellationToken cancellationToken)
+        async Task DispatchRegexAsync(IServiceProvider services, ModuleContext ctx, string text, Update update, Message message, CancellationToken cancellationToken)
         {
             // _registry.AllRegexes is already sorted by RegexOrder ascending.
             foreach (ActionDescriptor desc in _registry.AllRegexes)
             {
                 if (!desc.Regex!.IsMatch(text)) continue;
-                await InvokeAsync(desc, scope, ctx, update, UpdateType.Message, message, callbackQuery: null, routeValues: null, commandArgs: null, cancellationToken);
+                await InvokeAsync(desc, services, ctx, update, UpdateType.Message, message, callbackQuery: null, routeValues: null, commandArgs: null, cancellationToken);
                 if (desc.RegexStopOnMatch) break;
             }
         }
 
         async Task InvokeAsync(
             ActionDescriptor desc,
-            IServiceScope scope,
+            IServiceProvider services,
             ModuleContext ctx,
             Update update,
             UpdateType updateType,
@@ -381,7 +464,7 @@ namespace TqkLibrary.Telegram.BotKit
         {
             ModuleContext actionCtx = ctx with
             {
-                Logger = (ILogger)scope.ServiceProvider.GetRequiredService(typeof(ILogger<>).MakeGenericType(desc.ModuleType))
+                Logger = (ILogger)services.GetRequiredService(typeof(ILogger<>).MakeGenericType(desc.ModuleType))
             };
             var updCtx = new UpdateContext
             {
@@ -394,7 +477,7 @@ namespace TqkLibrary.Telegram.BotKit
                 CommandArgs = commandArgs,
                 CancellationToken = cancellationToken,
             };
-            await ModuleActionInvoker.InvokeAsync(desc, scope.ServiceProvider, updCtx);
+            await ModuleActionInvoker.InvokeAsync(desc, services, updCtx);
         }
 
         /// <summary>
@@ -437,12 +520,12 @@ namespace TqkLibrary.Telegram.BotKit
             holder.Bot = _bot;
         }
 
-        ModuleContext CreateContext(IServiceScope scope, long chatId, long telegramUserId, Type loggerType)
+        ModuleContext CreateContext(IServiceProvider services, long chatId, long telegramUserId, Type loggerType)
         {
-            ILogger logger = (ILogger)scope.ServiceProvider.GetRequiredService(typeof(ILogger<>).MakeGenericType(loggerType));
+            ILogger logger = (ILogger)services.GetRequiredService(typeof(ILogger<>).MakeGenericType(loggerType));
             return new ModuleContext
             {
-                ServiceProvider = scope.ServiceProvider,
+                ServiceProvider = services,
                 Bot = _bot,
                 BotToken = _botToken,
                 BotId = _botId,

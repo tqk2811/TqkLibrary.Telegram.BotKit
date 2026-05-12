@@ -1,4 +1,5 @@
 using TqkLibrary.Telegram.BotKit.Handlers;
+using TqkLibrary.Telegram.BotKit.Middleware;
 
 namespace TqkLibrary.Telegram.BotKit
 {
@@ -12,6 +13,21 @@ namespace TqkLibrary.Telegram.BotKit
 
         /// <summary>Manually registered command types. Deduped across calls.</summary>
         internal readonly List<Type> CommandTypes = new();
+
+        /// <summary>
+        /// Middleware pipeline entries in registration order. First entry runs outermost
+        /// (sees every later stage and the terminal dispatch). Both class-based
+        /// <see cref="IBotMiddleware"/> registrations and functional <c>Use(...)</c>
+        /// registrations are stored here, already adapted into the same delegate signature.
+        /// </summary>
+        internal readonly List<Func<BotMiddlewareContext, BotRequestDelegate, Task>> Middlewares = new();
+
+        /// <summary>
+        /// Class-based middleware types collected so <see cref="TelegramBotKitServiceExtensions"/>
+        /// can register them in DI (TryAddTransient). Functional <c>Use(...)</c> registrations
+        /// don't need a DI entry, so they don't appear here.
+        /// </summary>
+        internal readonly List<Type> MiddlewareTypes = new();
 
         /// <summary>
         /// Hook invoked on every received update (Message/CallbackQuery). Receives the scoped IServiceProvider,
@@ -102,6 +118,37 @@ namespace TqkLibrary.Telegram.BotKit
                 if (!CommandTypes.Contains(t))
                     CommandTypes.Add(t);
             }
+            return this;
+        }
+
+        /// <summary>
+        /// Register an inline functional middleware. Runs in registration order — first
+        /// <c>Use</c> call wraps the rest of the pipeline (outermost), so place exception
+        /// handlers FIRST and gates AFTER. Call <c>await next(ctx)</c> to continue;
+        /// return without calling <c>next</c> to short-circuit.
+        /// </summary>
+        public TelegramBotKitOptions Use(Func<BotMiddlewareContext, BotRequestDelegate, Task> middleware)
+        {
+            if (middleware is null) throw new ArgumentNullException(nameof(middleware));
+            Middlewares.Add(middleware);
+            return this;
+        }
+
+        /// <summary>
+        /// Register a class-based middleware <typeparamref name="T"/>. Resolved from the
+        /// per-update scoped <see cref="IServiceProvider"/>, so it can take scoped deps in
+        /// its constructor. Same ordering rules as <see cref="Use"/>.
+        /// </summary>
+        public TelegramBotKitOptions UseMiddleware<T>() where T : IBotMiddleware
+        {
+            Type type = typeof(T);
+            if (!MiddlewareTypes.Contains(type))
+                MiddlewareTypes.Add(type);
+            Middlewares.Add((ctx, next) =>
+            {
+                IBotMiddleware mw = (IBotMiddleware)ctx.Services.GetRequiredService(type);
+                return mw.InvokeAsync(ctx, next);
+            });
             return this;
         }
     }
