@@ -1,6 +1,9 @@
 mode: ManualDeployment
 tag-prefix: 'v'
-assembly-versioning-scheme: MajorMinorPatchTag
+assembly-versioning-scheme: MajorMinorPatch
+assembly-versioning-format: '{Major}.{Minor}.{CommitsSinceVersionSource}'
+assembly-file-versioning-format: '{Major}.{Minor}.{CommitsSinceVersionSource}'
+assembly-informational-format: '{Major}.{Minor}.{CommitsSinceVersionSource}'
 branches:
   master:
     regex: ^master$
